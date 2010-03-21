@@ -195,6 +195,7 @@ private:
 	void NotifyKey(int key, int modifiers);
 	void NotifyURIDropped(const char *list);
 	const char *CharacterSetID() const;
+	virtual void ChangeCaseOfSelection(bool makeUpperCase);
 	virtual int KeyDefault(int key, int modifiers);
 	virtual void CopyToClipboard(const SelectionText &selectedText);
 	virtual void Copy();
@@ -1334,6 +1335,64 @@ const char *CharacterSetID(int characterSet);
 
 const char *ScintillaGTK::CharacterSetID() const {
 	return ::CharacterSetID(vs.styles[STYLE_DEFAULT].characterSet);
+}
+
+void ScintillaGTK::ChangeCaseOfSelection(bool makeUpperCase) {
+	UndoGroup ug(pdoc);
+	const char *charSetBuffer = CharacterSetID();
+	for (size_t r=0; r<sel.Count(); r++) {
+		SelectionRange current = sel.Range(r);
+		SelectionRange currentNoVS = current;
+		currentNoVS.ClearVirtualSpace();
+		char *text = CopyRange(currentNoVS.Start().Position(), currentNoVS.End().Position());
+		char *converted = text;	// Must be freed no matter which path with delete []
+		int rangeBytes = currentNoVS.Length();
+fprintf(stderr, "%s) '%s' %d\n", charSetBuffer, text, rangeBytes);
+		int convertedLength = rangeBytes;
+		// Change text to UTF-8
+		if (!IsUnicodeMode()) {
+#ifdef USE_CONVERTER
+			// Need to convert
+			if (*charSetBuffer) {
+				converted = ConvertText(&convertedLength, text, rangeBytes, "UTF-8", charSetBuffer, false);
+			}
+#else
+			delete []converted;
+			break;
+#endif
+		}
+		gchar *mapped;	// Must be freed wuth g_free
+		if (makeUpperCase) {
+			mapped = g_utf8_strup(converted, convertedLength);
+		} else {
+			mapped = g_utf8_strdown(converted, convertedLength);
+		}
+		int mappedLength = strlen(mapped);
+		char *mappedBack = mapped;
+		char *temp = 0;	// Must be freed with delete []
+
+#ifdef USE_CONVERTER
+		if (!IsUnicodeMode()) {
+			if (*charSetBuffer) {
+				temp = ConvertText(&mappedLength, mapped, mappedLength, charSetBuffer, "UTF-8", false);
+				mappedBack = temp;
+			}
+		}
+#endif
+
+		if ((mappedLength != rangeBytes) || (strcmp(mappedBack, text) != 0)) {
+
+			pdoc->DeleteChars(currentNoVS.Start().Position(), rangeBytes);
+			pdoc->InsertString(currentNoVS.Start().Position(), mappedBack, mappedLength);
+
+			// Automatic movement changes selection so reset to exactly the same as it was.
+			sel.Range(r) = current;
+		}
+
+		delete []temp;
+		g_free(mapped);
+		delete []converted;
+	}
 }
 
 int ScintillaGTK::KeyDefault(int key, int modifiers) {
