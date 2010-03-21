@@ -4540,10 +4540,21 @@ void Editor::ChangeCaseOfSelection(bool makeUpperCase) {
 	UndoGroup ug(pdoc);
 	for (size_t r=0; r<sel.Count(); r++) {
 		SelectionRange current = sel.Range(r);
-		pdoc->ChangeCase(Range(current.Start().Position(), current.End().Position()),
-	        makeUpperCase);
-		// Automatic movement cuts off last character so reset to exactly the same as it was.
-		sel.Range(r) = current;
+		SelectionRange currentNoVS = current;
+		currentNoVS.ClearVirtualSpace();
+		char *text = CopyRange(currentNoVS.Start().Position(), currentNoVS.End().Position());
+		size_t rangeBytes = currentNoVS.Length();
+		std::string sText(text, rangeBytes);
+		delete []text;
+
+		std::string sMapped = CaseMapString(sText, makeUpperCase);
+
+		if (sMapped != sText) {
+			pdoc->DeleteChars(currentNoVS.Start().Position(), rangeBytes);
+			pdoc->InsertString(currentNoVS.Start().Position(), sMapped.c_str(), sMapped.size());
+			// Automatic movement changes selection so reset to exactly the same as it was.
+			sel.Range(r) = current;
+		}
 	}
 }
 
@@ -5298,13 +5309,15 @@ long Editor::FindText(
 
 	Sci_TextToFind *ft = reinterpret_cast<Sci_TextToFind *>(lParam);
 	int lengthFound = istrlen(ft->lpstrText);
-	int pos = pdoc->FindText(ft->chrg.cpMin, ft->chrg.cpMax, ft->lpstrText,
+	SearchPair sp = SearchPairFromString(ft->lpstrText, lengthFound);
+	int pos = pdoc->FindText(ft->chrg.cpMin, ft->chrg.cpMax, sp.sSearch.c_str(),
 	        (wParam & SCFIND_MATCHCASE) != 0,
 	        (wParam & SCFIND_WHOLEWORD) != 0,
 	        (wParam & SCFIND_WORDSTART) != 0,
 	        (wParam & SCFIND_REGEXP) != 0,
 	        wParam,
-	        &lengthFound);
+	        &lengthFound,
+			sp.sLower.c_str());
 	if (pos != -1) {
 		ft->chrgText.cpMin = pos;
 		ft->chrgText.cpMax = pos + lengthFound;
@@ -5341,14 +5354,16 @@ long Editor::SearchText(
 	const char *txt = reinterpret_cast<char *>(lParam);
 	int pos;
 	int lengthFound = istrlen(txt);
+	SearchPair sp = SearchPairFromString(txt, lengthFound);
 	if (iMessage == SCI_SEARCHNEXT) {
-		pos = pdoc->FindText(searchAnchor, pdoc->Length(), txt,
+		pos = pdoc->FindText(searchAnchor, pdoc->Length(), sp.sSearch.c_str(),
 		        (wParam & SCFIND_MATCHCASE) != 0,
 		        (wParam & SCFIND_WHOLEWORD) != 0,
 		        (wParam & SCFIND_WORDSTART) != 0,
 		        (wParam & SCFIND_REGEXP) != 0,
 		        wParam,
-		        &lengthFound);
+		        &lengthFound,
+				sp.sLower.c_str());
 	} else {
 		pos = pdoc->FindText(searchAnchor, 0, txt,
 		        (wParam & SCFIND_MATCHCASE) != 0,
@@ -5356,7 +5371,8 @@ long Editor::SearchText(
 		        (wParam & SCFIND_WORDSTART) != 0,
 		        (wParam & SCFIND_REGEXP) != 0,
 		        wParam,
-		        &lengthFound);
+		        &lengthFound,
+				sp.sLower.c_str());
 	}
 
 	if (pos != -1) {
@@ -5366,19 +5382,54 @@ long Editor::SearchText(
 	return pos;
 }
 
+std::string Editor::CaseMapString(const std::string &s, bool makeUpperCase) {
+	std::string ret(s);
+	for (size_t i=0; i<ret.size(); i++) {
+		if (makeUpperCase) {
+			if (ret[i] >= 'a' && ret[i] <= 'z')
+				ret[i] = static_cast<char>(ret[i] - 'a' + 'A');
+		} else {
+			if (ret[i] >= 'A' && ret[i] <= 'Z')
+				ret[i] = static_cast<char>(ret[i] - 'A' + 'a');
+		}
+	}
+	return ret;
+}
+
+SearchPair Editor::SearchPairFromString(const char *text, int length) {
+	SearchPair ret;
+	ret.sSearch = std::string(text, length);
+	ret.sLower = ret.sSearch;
+	if (!(searchFlags & SCFIND_MATCHCASE) && !(searchFlags & SCFIND_REGEXP)) {
+		// Create upper and lower case UTF-8 search strings and use if they are both the 
+		// same length.
+		std::string sUpper = CaseMapString(ret.sSearch, true);
+		ret.sLower = CaseMapString(ret.sSearch, false);
+		if ((sUpper.size() == static_cast<size_t>(length)) && (ret.sLower.size() == static_cast<size_t>(length))) {
+			ret.sSearch = sUpper;
+		} else {
+			ret.sLower = ret.sSearch;
+		}
+	}
+	return ret;
+}
+
 /**
  * Search for text in the target range of the document.
  * @return The position of the found text, -1 if not found.
  */
 long Editor::SearchInTarget(const char *text, int length) {
+	SearchPair sp = SearchPairFromString(text, length);
 	int lengthFound = length;
-	int pos = pdoc->FindText(targetStart, targetEnd, text,
+
+	int pos = pdoc->FindText(targetStart, targetEnd, sp.sSearch.c_str(),
 	        (searchFlags & SCFIND_MATCHCASE) != 0,
 	        (searchFlags & SCFIND_WHOLEWORD) != 0,
 	        (searchFlags & SCFIND_WORDSTART) != 0,
 	        (searchFlags & SCFIND_REGEXP) != 0,
 	        searchFlags,
-	        &lengthFound);
+	        &lengthFound,
+			sp.sLower.c_str());
 	if (pos != -1) {
 		targetStart = pos;
 		targetEnd = pos + lengthFound;

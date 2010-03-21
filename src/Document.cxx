@@ -1081,7 +1081,7 @@ static inline char MakeLowerCase(char ch) {
  */
 long Document::FindText(int minPos, int maxPos, const char *s,
                         bool caseSensitive, bool word, bool wordStart, bool regExp, int flags,
-                        int *length) {
+                        int *length, const char *sLower) {
 	if (regExp) {
 		if (!regex)
 			regex = CreateRegexSearch(&charClass);
@@ -1105,8 +1105,6 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 		}
 		//Platform::DebugPrintf("Find %d %d %s %d\n", startPos, endPos, ft->lpstrText, lengthFind);
 		char firstChar = s[0];
-		if (!caseSensitive)
-			firstChar = static_cast<char>(MakeUpperCase(firstChar));
 		int pos = forward ? startPos : (startPos - 1);
 		while (forward ? (pos < endSearch) : (pos >= endSearch)) {
 			char ch = CharAt(pos);
@@ -1127,12 +1125,12 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 					}
 				}
 			} else {
-				if (MakeUpperCase(ch) == firstChar) {
+				if ((ch == s[0]) || (ch == sLower[0])) {
 					bool found = true;
 					if (pos + lengthFind > Platform::Maximum(startPos, endPos)) found = false;
 					for (int posMatch = 1; posMatch < lengthFind && found; posMatch++) {
 						ch = CharAt(pos + posMatch);
-						if (MakeUpperCase(ch) != MakeUpperCase(s[posMatch]))
+						if ((ch != s[posMatch]) && (ch != sLower[posMatch]))
 							found = false;
 					}
 					if (found) {

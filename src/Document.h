@@ -254,9 +254,8 @@ public:
 	int NextWordEnd(int pos, int delta);
 	int Length() const { return cb.Length(); }
 	void Allocate(int newSize) { cb.Allocate(newSize); }
-	long FindText(int minPos, int maxPos, const char *s,
-		bool caseSensitive, bool word, bool wordStart, bool regExp, int flags, int *length);
-	long FindText(int iMessage, unsigned long wParam, long lParam);
+	long FindText(int minPos, int maxPos, const char *s, bool caseSensitive, bool word, 
+		bool wordStart, bool regExp, int flags, int *length, const char *sLower);
 	const char *SubstituteByPosition(const char *text, int *length);
 	int LinesTotal() const;
 

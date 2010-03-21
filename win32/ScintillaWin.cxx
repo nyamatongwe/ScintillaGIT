@@ -216,7 +216,7 @@ class ScintillaWin :
 	virtual int GetCtrlID();
 	virtual void NotifyParent(SCNotification scn);
 	virtual void NotifyDoubleClick(Point pt, bool shift, bool ctrl, bool alt);
-	virtual void ChangeCaseOfSelection(bool makeUpperCase);
+	virtual std::string CaseMapString(const std::string &s, bool makeUpperCase);
 	virtual void Copy();
 	virtual void CopyAllowLine();
 	virtual bool CanPaste();
@@ -1294,52 +1294,31 @@ void ScintillaWin::NotifyDoubleClick(Point pt, bool shift, bool ctrl, bool alt) 
 			  MAKELPARAM(pt.x, pt.y));
 }
 
-void ScintillaWin::ChangeCaseOfSelection(bool makeUpperCase) {
-	UndoGroup ug(pdoc);
-	for (size_t r=0; r<sel.Count(); r++) {
-		SelectionRange current = sel.Range(r);
-		SelectionRange currentNoVS = current;
-		currentNoVS.ClearVirtualSpace();
-		char *text = CopyRange(currentNoVS.Start().Position(), currentNoVS.End().Position());
-		size_t rangeBytes = currentNoVS.Length();
+std::string ScintillaWin::CaseMapString(const std::string &s, bool makeUpperCase) {
+	// Change text to UTF-16
+	std::vector<wchar_t> vwcText;
+	unsigned int lengthUTF16;
+	UINT cpDoc = CodePageOfDocument();
+	lengthUTF16 = ::MultiByteToWideChar(cpDoc, 0, s.c_str(), s.size(), NULL, NULL);
+	vwcText.resize(lengthUTF16);
+	::MultiByteToWideChar(cpDoc, 0, s.c_str(), s.size(), &vwcText[0], lengthUTF16);
 
-		// Change text to UTF-16
-		std::vector<wchar_t> vwcText;
-		unsigned int lengthUTF16;
-		UINT cpDoc = CodePageOfDocument();
-		lengthUTF16 = ::MultiByteToWideChar(cpDoc, 0, text, rangeBytes, NULL, NULL);
-		vwcText.resize(lengthUTF16);
-		::MultiByteToWideChar(cpDoc, 0, text, rangeBytes, &vwcText[0], lengthUTF16);
+	DWORD mapFlags = makeUpperCase ? LCMAP_UPPERCASE : LCMAP_LOWERCASE;
+	int charsConverted = ::LCMapString(LOCALE_SYSTEM_DEFAULT, mapFlags, 
+		&vwcText[0], lengthUTF16, NULL, 0);
+	std::vector<wchar_t> vwcConverted(lengthUTF16);
+	::LCMapString(LOCALE_SYSTEM_DEFAULT, mapFlags, &vwcText[0], lengthUTF16, 
+		&vwcConverted[0], charsConverted);
+	unsigned int lengthConverted;
 
-		DWORD mapFlags = makeUpperCase ? LCMAP_UPPERCASE : LCMAP_LOWERCASE;
-		int charsConverted = ::LCMapString(LOCALE_SYSTEM_DEFAULT, mapFlags, 
-			&vwcText[0], lengthUTF16, NULL, 0);
-		if (charsConverted == static_cast<int>(lengthUTF16)) {
-			// While it may be possible for case mapping to change length, I couldn't find an example 
-			// and the code was too complex to expect to work without testing.
-			// MSDN says that the buffer may be reused for LCMAP_UPPERCASE or LCMAP_LOWERCASE
-			// so should be OK.
-			std::vector<wchar_t> vwcConverted(lengthUTF16);
-			::LCMapString(LOCALE_SYSTEM_DEFAULT, mapFlags, &vwcText[0], lengthUTF16, 
-				&vwcConverted[0], charsConverted);
-			unsigned int lengthConverted;
-			if (vwcConverted != vwcText) {
-				// Something was modified
-				std::vector<char> vcConverted;
-				lengthConverted = ::WideCharToMultiByte(cpDoc, 0, 
-					&vwcConverted[0], vwcConverted.size(), NULL, 0, NULL, 0);
-				vcConverted.resize(lengthConverted);
-				::WideCharToMultiByte(cpDoc, 0, &vwcConverted[0], vwcConverted.size(), 
-					&vcConverted[0], vcConverted.size(), NULL, 0);
+	std::vector<char> vcConverted;
+	lengthConverted = ::WideCharToMultiByte(cpDoc, 0, 
+		&vwcConverted[0], vwcConverted.size(), NULL, 0, NULL, 0);
+	vcConverted.resize(lengthConverted);
+	::WideCharToMultiByte(cpDoc, 0, &vwcConverted[0], vwcConverted.size(), 
+		&vcConverted[0], vcConverted.size(), NULL, 0);
 
-				pdoc->DeleteChars(currentNoVS.Start().Position(), rangeBytes);
-				pdoc->InsertString(currentNoVS.Start().Position(), &vcConverted[0], lengthConverted);
-
-				// Automatic movement changes selection so reset to exactly the same as it was.
-				sel.Range(r) = current;
-			}
-		}
-	}
+	return std::string(&vcConverted[0], vcConverted.size());
 }
 
 void ScintillaWin::Copy() {

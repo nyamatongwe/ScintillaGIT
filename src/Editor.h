@@ -94,6 +94,11 @@ public:
 	}
 };
 
+struct SearchPair {
+	std::string sSearch;
+	std::string sLower;
+};
+
 /**
  */
 class Editor : public DocWatcher {
@@ -405,7 +410,8 @@ protected:	// ScintillaBase subclass needs access to much of Editor
 	void NotifyMacroRecord(unsigned int iMessage, uptr_t wParam, sptr_t lParam);
 
 	void PageMove(int direction, Selection::selTypes sel=Selection::noSel, bool stuttered = false);
-	virtual void ChangeCaseOfSelection(bool makeUpperCase);
+	virtual std::string CaseMapString(const std::string &s, bool makeUpperCase);
+	void ChangeCaseOfSelection(bool makeUpperCase);
 	void LineTranspose();
 	void Duplicate(bool forLine);
 	virtual void CancelModes();
@@ -422,6 +428,7 @@ protected:	// ScintillaBase subclass needs access to much of Editor
 
 	void Indent(bool forwards);
 
+	SearchPair SearchPairFromString(const char *text, int length);
 	long FindText(uptr_t wParam, sptr_t lParam);
 	void SearchAnchor();
 	long SearchText(unsigned int iMessage, uptr_t wParam, sptr_t lParam);
