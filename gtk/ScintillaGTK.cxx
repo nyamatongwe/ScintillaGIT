@@ -1347,7 +1347,6 @@ void ScintillaGTK::ChangeCaseOfSelection(bool makeUpperCase) {
 		char *text = CopyRange(currentNoVS.Start().Position(), currentNoVS.End().Position());
 		char *converted = text;	// Must be freed no matter which path with delete []
 		int rangeBytes = currentNoVS.Length();
-fprintf(stderr, "%s) '%s' %d\n", charSetBuffer, text, rangeBytes);
 		int convertedLength = rangeBytes;
 		// Change text to UTF-8
 		if (!IsUnicodeMode()) {
