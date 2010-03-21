@@ -197,6 +197,7 @@ class ScintillaWin :
 	virtual void StartDrag();
 	sptr_t WndPaint(uptr_t wParam);
 	sptr_t HandleComposition(uptr_t wParam, sptr_t lParam);
+	UINT CodePageOfDocument();
 	virtual bool ValidCodePage(int codePage) const;
 	virtual sptr_t DefWndProc(unsigned int iMessage, uptr_t wParam, sptr_t lParam);
 	virtual bool SetIdle(bool on);
@@ -215,6 +216,7 @@ class ScintillaWin :
 	virtual int GetCtrlID();
 	virtual void NotifyParent(SCNotification scn);
 	virtual void NotifyDoubleClick(Point pt, bool shift, bool ctrl, bool alt);
+	virtual void ChangeCaseOfSelection(bool makeUpperCase);
 	virtual void Copy();
 	virtual void CopyAllowLine();
 	virtual bool CanPaste();
@@ -604,6 +606,10 @@ static UINT CodePageFromCharSet(DWORD characterSet, UINT documentCodePage) {
 	return cp;
 }
 
+UINT ScintillaWin::CodePageOfDocument() {
+	return CodePageFromCharSet(vs.styles[STYLE_DEFAULT].characterSet, pdoc->dbcsCodePage);
+}
+
 sptr_t ScintillaWin::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lParam) {
 	try {
 		//Platform::DebugPrintf("S M:%x WP:%x L:%x\n", iMessage, wParam, lParam);
@@ -800,8 +806,7 @@ sptr_t ScintillaWin::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lParam
 						UTF8FromUTF16(wcs, 1, utfval, len);
 						AddCharUTF(utfval, len);
 					} else {
-						UINT cpDest = CodePageFromCharSet(
-							vs.styles[STYLE_DEFAULT].characterSet, pdoc->dbcsCodePage);
+						UINT cpDest = CodePageOfDocument();
 						char inBufferCP[20];
 						int size = ::WideCharToMultiByte(cpDest,
 							0, wcs, 1, inBufferCP, sizeof(inBufferCP) - 1, 0, 0);
@@ -1289,6 +1294,54 @@ void ScintillaWin::NotifyDoubleClick(Point pt, bool shift, bool ctrl, bool alt) 
 			  MAKELPARAM(pt.x, pt.y));
 }
 
+void ScintillaWin::ChangeCaseOfSelection(bool makeUpperCase) {
+	UndoGroup ug(pdoc);
+	for (size_t r=0; r<sel.Count(); r++) {
+		SelectionRange current = sel.Range(r);
+		SelectionRange currentNoVS = current;
+		currentNoVS.ClearVirtualSpace();
+		char *text = CopyRange(currentNoVS.Start().Position(), currentNoVS.End().Position());
+		size_t rangeBytes = currentNoVS.Length();
+
+		// Change text to UTF-16
+		std::vector<wchar_t> vwcText;
+		unsigned int lengthUTF16;
+		UINT cpDoc = CodePageOfDocument();
+		lengthUTF16 = ::MultiByteToWideChar(cpDoc, 0, text, rangeBytes, NULL, NULL);
+		vwcText.resize(lengthUTF16);
+		::MultiByteToWideChar(cpDoc, 0, text, rangeBytes, &vwcText[0], lengthUTF16);
+
+		DWORD mapFlags = makeUpperCase ? LCMAP_UPPERCASE : LCMAP_LOWERCASE;
+		int charsConverted = ::LCMapString(LOCALE_SYSTEM_DEFAULT, mapFlags, 
+			&vwcText[0], lengthUTF16, NULL, 0);
+		if (charsConverted == static_cast<int>(lengthUTF16)) {
+			// While it may be possible for case mapping to change length, I couldn't find an example 
+			// and the code was too complex to expect to work without testing.
+			// MSDN says that the buffer may be reused for LCMAP_UPPERCASE or LCMAP_LOWERCASE
+			// so should be OK.
+			std::vector<wchar_t> vwcConverted(lengthUTF16);
+			::LCMapString(LOCALE_SYSTEM_DEFAULT, mapFlags, &vwcText[0], lengthUTF16, 
+				&vwcConverted[0], charsConverted);
+			unsigned int lengthConverted;
+			if (vwcConverted != vwcText) {
+				// Something was modified
+				std::vector<char> vcConverted;
+				lengthConverted = ::WideCharToMultiByte(cpDoc, 0, 
+					&vwcConverted[0], vwcConverted.size(), NULL, 0, NULL, 0);
+				vcConverted.resize(lengthConverted);
+				::WideCharToMultiByte(cpDoc, 0, &vwcConverted[0], vwcConverted.size(), 
+					&vcConverted[0], vcConverted.size(), NULL, 0);
+
+				pdoc->DeleteChars(currentNoVS.Start().Position(), rangeBytes);
+				pdoc->InsertString(currentNoVS.Start().Position(), &vcConverted[0], lengthConverted);
+
+				// Automatic movement changes selection so reset to exactly the same as it was.
+				sel.Range(r) = current;
+			}
+		}
+	}
+}
+
 void ScintillaWin::Copy() {
 	//Platform::DebugPrintf("Copy\n");
 	if (!sel.Empty()) {
@@ -1409,8 +1462,7 @@ void ScintillaWin::Paste() {
 			} else {
 				// CF_UNICODETEXT available, but not in Unicode mode
 				// Convert from Unicode to current Scintilla code page
-				UINT cpDest = CodePageFromCharSet(
-					vs.styles[STYLE_DEFAULT].characterSet, pdoc->dbcsCodePage);
+				UINT cpDest = CodePageOfDocument();
 				len = ::WideCharToMultiByte(cpDest, 0, uptr, memUSelection.Size() / 2,
 				                            NULL, 0, NULL, NULL) - 1; // subtract 0 terminator
 				putf = new char[len + 1];
@@ -2237,8 +2289,7 @@ STDMETHODIMP ScintillaWin::Drop(LPDATAOBJECT pIDataSource, DWORD grfKeyState,
 				// Default Scintilla behavior in Unicode mode
 				// CF_UNICODETEXT available, but not in Unicode mode
 				// Convert from Unicode to current Scintilla code page
-				UINT cpDest = CodePageFromCharSet(
-					vs.styles[STYLE_DEFAULT].characterSet, pdoc->dbcsCodePage);
+				UINT cpDest = CodePageOfDocument();
 				int tlen = ::WideCharToMultiByte(cpDest, 0, udata, -1,
 					NULL, 0, NULL, NULL) - 1; // subtract 0 terminator
 				data = new char[tlen + 1];

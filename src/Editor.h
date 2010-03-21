@@ -405,7 +405,7 @@ protected:	// ScintillaBase subclass needs access to much of Editor
 	void NotifyMacroRecord(unsigned int iMessage, uptr_t wParam, sptr_t lParam);
 
 	void PageMove(int direction, Selection::selTypes sel=Selection::noSel, bool stuttered = false);
-	void ChangeCaseOfSelection(bool makeUpperCase);
+	virtual void ChangeCaseOfSelection(bool makeUpperCase);
 	void LineTranspose();
 	void Duplicate(bool forLine);
 	virtual void CancelModes();
