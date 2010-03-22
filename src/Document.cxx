@@ -13,6 +13,14 @@
 #include <string>
 #include <vector>
 
+// With Borland C++ 5.5, including <string> includes Windows.h leading to defining
+// FindText to FindTextA which makes calls here to Document::FindText fail.
+#ifdef __BORLANDC__
+#ifdef FindText
+#undef FindText
+#endif
+#endif
+
 #include "Platform.h"
 
 #include "Scintilla.h"
@@ -1133,12 +1141,12 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 				size_t elem = 0;
 				int posMatch = 0;
 				// Check through the document matching against each element
-				// in spl where a match can be to either of the two strings. 
+				// in spl where a match can be to either of the two strings.
 				// This is still imperfect since the search string is checked for two cases
 				// but the document isn't. This allows German sharp S to match SS in the
-				// document but SS will not match sharp S in the document. This is due 
-				// to the slowness of calling case mapping over each character being 
-				// searched in the document and is mitigated by the low frequency of 
+				// document but SS will not match sharp S in the document. This is due
+				// to the slowness of calling case mapping over each character being
+				// searched in the document and is mitigated by the low frequency of
 				// such text.
 				while (found && elem < spl.size()) {
 					// Check match with sp[elem].sSearch
