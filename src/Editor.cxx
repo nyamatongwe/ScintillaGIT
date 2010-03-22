@@ -4545,25 +4545,27 @@ void Editor::ChangeCaseOfSelection(bool makeUpperCase) {
 		currentNoVS.ClearVirtualSpace();
 		char *text = CopyRange(currentNoVS.Start().Position(), currentNoVS.End().Position());
 		size_t rangeBytes = currentNoVS.Length();
-		std::string sText(text, rangeBytes);
-		delete []text;
+		if (rangeBytes > 0) {
+			std::string sText(text, rangeBytes);
+			delete []text;
 
-		std::string sMapped = CaseMapString(sText, makeUpperCase);
+			std::string sMapped = CaseMapString(sText, makeUpperCase);
 
-		if (sMapped != sText) {
-			size_t firstDifference = 0;
-			while (sMapped[firstDifference] == sText[firstDifference])
-				firstDifference++;
-			size_t lastDifference = sMapped.size() - 1;
-			while (sMapped[lastDifference] == sText[lastDifference])
-				lastDifference--;
-			size_t endSame = sMapped.size() - 1 - lastDifference;
-			pdoc->DeleteChars(currentNoVS.Start().Position() + firstDifference, 
-				rangeBytes - firstDifference - endSame);
-			pdoc->InsertString(currentNoVS.Start().Position() + firstDifference, 
-				sMapped.c_str() + firstDifference, lastDifference - firstDifference + 1);
-			// Automatic movement changes selection so reset to exactly the same as it was.
-			sel.Range(r) = current;
+			if (sMapped != sText) {
+				size_t firstDifference = 0;
+				while (sMapped[firstDifference] == sText[firstDifference])
+					firstDifference++;
+				size_t lastDifference = sMapped.size() - 1;
+				while (sMapped[lastDifference] == sText[lastDifference])
+					lastDifference--;
+				size_t endSame = sMapped.size() - 1 - lastDifference;
+				pdoc->DeleteChars(currentNoVS.Start().Position() + firstDifference, 
+					rangeBytes - firstDifference - endSame);
+				pdoc->InsertString(currentNoVS.Start().Position() + firstDifference, 
+					sMapped.c_str() + firstDifference, lastDifference - firstDifference + 1);
+				// Automatic movement changes selection so reset to exactly the same as it was.
+				sel.Range(r) = current;
+			}
 		}
 	}
 }

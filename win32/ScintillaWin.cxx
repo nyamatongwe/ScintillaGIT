@@ -1295,15 +1295,20 @@ void ScintillaWin::NotifyDoubleClick(Point pt, bool shift, bool ctrl, bool alt) 
 }
 
 std::string ScintillaWin::CaseMapString(const std::string &s, bool makeUpperCase) {
+	if (s.size() == 0)
+		return std::string();
 	// Change text to UTF-16
 	std::vector<wchar_t> vwcText;
 	unsigned int lengthUTF16;
 	UINT cpDoc = CodePageOfDocument();
 	lengthUTF16 = ::MultiByteToWideChar(cpDoc, 0, s.c_str(), s.size(), NULL, NULL);
+	if (lengthUTF16 == 0)	// Failed to convert
+		return s;
 	vwcText.resize(lengthUTF16);
 	::MultiByteToWideChar(cpDoc, 0, s.c_str(), s.size(), &vwcText[0], lengthUTF16);
 
-	DWORD mapFlags = makeUpperCase ? LCMAP_UPPERCASE : LCMAP_LOWERCASE;
+	DWORD mapFlags = LCMAP_LINGUISTIC_CASING | 
+		(makeUpperCase ? LCMAP_UPPERCASE : LCMAP_LOWERCASE);
 	int charsConverted = ::LCMapStringW(LOCALE_SYSTEM_DEFAULT, mapFlags,
 		&vwcText[0], lengthUTF16, NULL, 0);
 	std::vector<wchar_t> vwcConverted(lengthUTF16);
