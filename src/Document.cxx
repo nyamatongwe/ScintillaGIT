@@ -1145,7 +1145,7 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 					size_t matchLen = 0;
 					bool elemMatches = true;
 					for (size_t j=0; j<spl[elem].sSearch.size(); j++) {
-						ch = CharAt(pos + posMatch +j);
+						ch = CharAt(pos + posMatch + j);
 						if (ch != spl[elem].sSearch[j]) {
 							elemMatches = false;
 							break;
@@ -1157,7 +1157,7 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 						// Check match with spl[elem].sCaseInverted
 						elemMatches = true;
 						for (size_t j=0; j<spl[elem].sCaseInverted.size(); j++) {
-							ch = CharAt(pos + posMatch +j);
+							ch = CharAt(pos + posMatch + j);
 							if (ch != spl[elem].sCaseInverted[j]) {
 								elemMatches = false;
 								break;
@@ -1180,8 +1180,10 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 				if (found) {
 					if ((!word && !wordStart) ||
 					        (word && IsWordAt(pos, posMatch)) ||
-					        (wordStart && IsWordStartAt(pos)))
+					        (wordStart && IsWordStartAt(pos))) {
+						*length = posMatch;
 						return pos;
+					}
 				}
 			}
 			pos += increment;
