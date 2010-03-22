@@ -1304,18 +1304,18 @@ std::string ScintillaWin::CaseMapString(const std::string &s, bool makeUpperCase
 	::MultiByteToWideChar(cpDoc, 0, s.c_str(), s.size(), &vwcText[0], lengthUTF16);
 
 	DWORD mapFlags = makeUpperCase ? LCMAP_UPPERCASE : LCMAP_LOWERCASE;
-	int charsConverted = ::LCMapString(LOCALE_SYSTEM_DEFAULT, mapFlags, 
+	int charsConverted = ::LCMapStringW(LOCALE_SYSTEM_DEFAULT, mapFlags,
 		&vwcText[0], lengthUTF16, NULL, 0);
 	std::vector<wchar_t> vwcConverted(lengthUTF16);
-	::LCMapString(LOCALE_SYSTEM_DEFAULT, mapFlags, &vwcText[0], lengthUTF16, 
+	::LCMapStringW(LOCALE_SYSTEM_DEFAULT, mapFlags, &vwcText[0], lengthUTF16,
 		&vwcConverted[0], charsConverted);
 	unsigned int lengthConverted;
 
 	std::vector<char> vcConverted;
-	lengthConverted = ::WideCharToMultiByte(cpDoc, 0, 
+	lengthConverted = ::WideCharToMultiByte(cpDoc, 0,
 		&vwcConverted[0], vwcConverted.size(), NULL, 0, NULL, 0);
 	vcConverted.resize(lengthConverted);
-	::WideCharToMultiByte(cpDoc, 0, &vwcConverted[0], vwcConverted.size(), 
+	::WideCharToMultiByte(cpDoc, 0, &vwcConverted[0], vwcConverted.size(),
 		&vcConverted[0], vcConverted.size(), NULL, 0);
 
 	return std::string(&vcConverted[0], vcConverted.size());
