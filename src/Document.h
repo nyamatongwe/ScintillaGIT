@@ -115,6 +115,13 @@ struct StyledText {
 	}
 };
 
+struct SearchPair {
+	// The original (possibly multibyte) character being searched for
+	std::string sSearch;	
+	// As sSearch with lower case replaced by upper case and vice versa
+	std::string sCaseInverted;	
+};
+
 /**
  */
 class Document : PerLine {
@@ -255,7 +262,7 @@ public:
 	int Length() const { return cb.Length(); }
 	void Allocate(int newSize) { cb.Allocate(newSize); }
 	long FindText(int minPos, int maxPos, const char *s, bool caseSensitive, bool word, 
-		bool wordStart, bool regExp, int flags, int *length, const char *sLower);
+		bool wordStart, bool regExp, int flags, int *length, const std::vector<SearchPair> &spl);
 	const char *SubstituteByPosition(const char *text, int *length);
 	int LinesTotal() const;
 

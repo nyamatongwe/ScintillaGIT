@@ -43,6 +43,7 @@
 #include "Selection.h"
 #include "PositionCache.h"
 #include "Editor.h"
+#include "UniConversion.h"
 
 #ifdef SCI_NAMESPACE
 using namespace Scintilla;
@@ -4550,8 +4551,17 @@ void Editor::ChangeCaseOfSelection(bool makeUpperCase) {
 		std::string sMapped = CaseMapString(sText, makeUpperCase);
 
 		if (sMapped != sText) {
-			pdoc->DeleteChars(currentNoVS.Start().Position(), rangeBytes);
-			pdoc->InsertString(currentNoVS.Start().Position(), sMapped.c_str(), sMapped.size());
+			size_t firstDifference = 0;
+			while (sMapped[firstDifference] == sText[firstDifference])
+				firstDifference++;
+			size_t lastDifference = sMapped.size() - 1;
+			while (sMapped[lastDifference] == sText[lastDifference])
+				lastDifference--;
+			size_t endSame = sMapped.size() - 1 - lastDifference;
+			pdoc->DeleteChars(currentNoVS.Start().Position() + firstDifference, 
+				rangeBytes - firstDifference - endSame);
+			pdoc->InsertString(currentNoVS.Start().Position() + firstDifference, 
+				sMapped.c_str() + firstDifference, lastDifference - firstDifference + 1);
 			// Automatic movement changes selection so reset to exactly the same as it was.
 			sel.Range(r) = current;
 		}
@@ -5309,15 +5319,15 @@ long Editor::FindText(
 
 	Sci_TextToFind *ft = reinterpret_cast<Sci_TextToFind *>(lParam);
 	int lengthFound = istrlen(ft->lpstrText);
-	SearchPair sp = SearchPairFromString(ft->lpstrText, lengthFound);
-	int pos = pdoc->FindText(ft->chrg.cpMin, ft->chrg.cpMax, sp.sSearch.c_str(),
+	std::vector<SearchPair> spl = SearchPairsFromString(ft->lpstrText, lengthFound);
+	int pos = pdoc->FindText(ft->chrg.cpMin, ft->chrg.cpMax, ft->lpstrText,
 	        (wParam & SCFIND_MATCHCASE) != 0,
 	        (wParam & SCFIND_WHOLEWORD) != 0,
 	        (wParam & SCFIND_WORDSTART) != 0,
 	        (wParam & SCFIND_REGEXP) != 0,
 	        wParam,
 	        &lengthFound,
-			sp.sLower.c_str());
+			spl);
 	if (pos != -1) {
 		ft->chrgText.cpMin = pos;
 		ft->chrgText.cpMax = pos + lengthFound;
@@ -5354,16 +5364,16 @@ long Editor::SearchText(
 	const char *txt = reinterpret_cast<char *>(lParam);
 	int pos;
 	int lengthFound = istrlen(txt);
-	SearchPair sp = SearchPairFromString(txt, lengthFound);
+	std::vector<SearchPair> spl = SearchPairsFromString(txt, lengthFound);
 	if (iMessage == SCI_SEARCHNEXT) {
-		pos = pdoc->FindText(searchAnchor, pdoc->Length(), sp.sSearch.c_str(),
+		pos = pdoc->FindText(searchAnchor, pdoc->Length(), txt,
 		        (wParam & SCFIND_MATCHCASE) != 0,
 		        (wParam & SCFIND_WHOLEWORD) != 0,
 		        (wParam & SCFIND_WORDSTART) != 0,
 		        (wParam & SCFIND_REGEXP) != 0,
 		        wParam,
 		        &lengthFound,
-				sp.sLower.c_str());
+				spl);
 	} else {
 		pos = pdoc->FindText(searchAnchor, 0, txt,
 		        (wParam & SCFIND_MATCHCASE) != 0,
@@ -5372,7 +5382,7 @@ long Editor::SearchText(
 		        (wParam & SCFIND_REGEXP) != 0,
 		        wParam,
 		        &lengthFound,
-				sp.sLower.c_str());
+				spl);
 	}
 
 	if (pos != -1) {
@@ -5396,21 +5406,61 @@ std::string Editor::CaseMapString(const std::string &s, bool makeUpperCase) {
 	return ret;
 }
 
-SearchPair Editor::SearchPairFromString(const char *text, int length) {
-	SearchPair ret;
-	ret.sSearch = std::string(text, length);
-	ret.sLower = ret.sSearch;
+std::vector<SearchPair> Editor::SearchPairsFromString(const char *text, int length) {
+	std::vector<SearchPair> ret;
 	if (!(searchFlags & SCFIND_MATCHCASE) && !(searchFlags & SCFIND_REGEXP)) {
-		// Create upper and lower case UTF-8 search strings and use if they are both the 
-		// same length.
-		std::string sUpper = CaseMapString(ret.sSearch, true);
-		ret.sLower = CaseMapString(ret.sSearch, false);
-		if ((sUpper.size() == static_cast<size_t>(length)) && (ret.sLower.size() == static_cast<size_t>(length))) {
-			ret.sSearch = sUpper;
+		if (IsUnicodeMode()) {
+			// For UTF-8 the upper and lower case forms of a character may differ in any
+			// byte. For example the upper and lower case forms of ARMENIAN LETTER 
+			// YIWN are \xD5\x92 and \xD6\x82. Therefore, each character case must be 
+			// matched as a whole and it is not possible to just create upper case and 
+			// lower case mappings of the search string (as is done for other encodings)
+			// and allow matching against each byte from either.
+			// A case mapping may also change the length of the text although this normally 
+			// happens only when full case folding is used which appears to be the default on 
+			// GTK+ but not on Windows. For example, the OHM SIGN \xE2\x84\xA6 may lower 
+			// case to GREEK SMALL LETTER OMEGA which is only two bytes \xCF\x89.
+			// Hence each element in the check list is a pair of strings that may differ in length.
+			int i=0;
+			// For each (possibly multibyte) character in text
+			while (i < length) {
+				int lenChar = UTF8CharLength(text[i]);
+				if ((lenChar + i) > length) {
+					// Not enough bytes left in text so bad UTF-8
+					std::string sChar(text+i, length - i);
+					SearchPair sp;
+					sp.sSearch = sChar;
+					sp.sCaseInverted = sChar;
+					ret.push_back(sp);
+				} else {
+					std::string sChar(text+i, lenChar);
+					std::string sUpper = CaseMapString(sChar, true);
+					std::string sLower = CaseMapString(sChar, false);
+					SearchPair sp;
+					sp.sSearch = sChar;
+					if (sLower != sChar) {
+						sp.sCaseInverted = sLower;
+					} else {
+						// sChar may be same as sUpper or different
+						sp.sCaseInverted = sUpper;
+					}
+					ret.push_back(sp);
+				}
+				i += lenChar;
+			}
 		} else {
-			ret.sLower = ret.sSearch;
+			// Not UTF-8 so case inversions simple without changes in length of characters
+			// so can just use the uppercased and lowercased versions of the search string
+			std::string sSearch(text, length);
+			std::string sUpper = CaseMapString(sSearch, true);
+			std::string sLower = CaseMapString(sSearch, false);
+			SearchPair sp;
+			sp.sSearch = sUpper;
+			sp.sCaseInverted = sLower;
+			ret.push_back(sp);
 		}
 	}
+
 	return ret;
 }
 
@@ -5419,17 +5469,17 @@ SearchPair Editor::SearchPairFromString(const char *text, int length) {
  * @return The position of the found text, -1 if not found.
  */
 long Editor::SearchInTarget(const char *text, int length) {
-	SearchPair sp = SearchPairFromString(text, length);
+	const std::vector<SearchPair> &spl = SearchPairsFromString(text, length);
 	int lengthFound = length;
 
-	int pos = pdoc->FindText(targetStart, targetEnd, sp.sSearch.c_str(),
+	int pos = pdoc->FindText(targetStart, targetEnd, text,
 	        (searchFlags & SCFIND_MATCHCASE) != 0,
 	        (searchFlags & SCFIND_WHOLEWORD) != 0,
 	        (searchFlags & SCFIND_WORDSTART) != 0,
 	        (searchFlags & SCFIND_REGEXP) != 0,
 	        searchFlags,
 	        &lengthFound,
-			sp.sLower.c_str());
+			spl);
 	if (pos != -1) {
 		targetStart = pos;
 		targetEnd = pos + lengthFound;

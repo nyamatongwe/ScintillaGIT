@@ -94,11 +94,6 @@ public:
 	}
 };
 
-struct SearchPair {
-	std::string sSearch;
-	std::string sLower;
-};
-
 /**
  */
 class Editor : public DocWatcher {
@@ -428,7 +423,7 @@ protected:	// ScintillaBase subclass needs access to much of Editor
 
 	void Indent(bool forwards);
 
-	SearchPair SearchPairFromString(const char *text, int length);
+	std::vector<SearchPair> SearchPairsFromString(const char *text, int length);
 	long FindText(uptr_t wParam, sptr_t lParam);
 	void SearchAnchor();
 	long SearchText(unsigned int iMessage, uptr_t wParam, sptr_t lParam);

@@ -10,6 +10,9 @@
 #include <stdio.h>
 #include <ctype.h>
 
+#include <string>
+#include <vector>
+
 #include "Platform.h"
 
 #include "Scintilla.h"
@@ -1081,7 +1084,7 @@ static inline char MakeLowerCase(char ch) {
  */
 long Document::FindText(int minPos, int maxPos, const char *s,
                         bool caseSensitive, bool word, bool wordStart, bool regExp, int flags,
-                        int *length, const char *sLower) {
+                        int *length, const std::vector<SearchPair> &spl) {
 	if (regExp) {
 		if (!regex)
 			regex = CreateRegexSearch(&charClass);
@@ -1125,20 +1128,60 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 					}
 				}
 			} else {
-				if ((ch == s[0]) || (ch == sLower[0])) {
-					bool found = true;
-					if (pos + lengthFind > Platform::Maximum(startPos, endPos)) found = false;
-					for (int posMatch = 1; posMatch < lengthFind && found; posMatch++) {
-						ch = CharAt(pos + posMatch);
-						if ((ch != s[posMatch]) && (ch != sLower[posMatch]))
+				bool found = true;
+				int endMatch = Platform::Maximum(startPos, endPos);
+				size_t elem = 0;
+				int posMatch = 0;
+				// Check through the document matching against each element
+				// in spl where a match can be to either of the two strings. 
+				// This is still imperfect since the search string is checked for two cases
+				// but the document isn't. This allows German sharp S to match SS in the
+				// document but SS will not match sharp S in the document. This is due 
+				// to the slowness of calling case mapping over each character being 
+				// searched in the document and is mitigated by the low frequency of 
+				// such text.
+				while (found && elem < spl.size()) {
+					// Check match with sp[elem].sSearch
+					size_t matchLen = 0;
+					bool elemMatches = true;
+					for (size_t j=0; j<spl[elem].sSearch.size(); j++) {
+						ch = CharAt(pos + posMatch +j);
+						if (ch != spl[elem].sSearch[j]) {
+							elemMatches = false;
+							break;
+						}
+					}
+					if (elemMatches) {
+						matchLen = spl[elem].sSearch.size();
+					} else {
+						// Check match with spl[elem].sCaseInverted
+						elemMatches = true;
+						for (size_t j=0; j<spl[elem].sCaseInverted.size(); j++) {
+							ch = CharAt(pos + posMatch +j);
+							if (ch != spl[elem].sCaseInverted[j]) {
+								elemMatches = false;
+								break;
+							}
+						}
+						if (elemMatches) {
+							matchLen = spl[elem].sCaseInverted.size();
+						}
+					}
+					if (elemMatches) {
+						elem++;
+						posMatch += matchLen;
+						if (posMatch > endMatch) {
 							found = false;
+						}
+					} else {
+						found = false;
 					}
-					if (found) {
-						if ((!word && !wordStart) ||
-						        (word && IsWordAt(pos, pos + lengthFind)) ||
-						        (wordStart && IsWordStartAt(pos)))
-							return pos;
-					}
+				}
+				if (found) {
+					if ((!word && !wordStart) ||
+					        (word && IsWordAt(pos, posMatch)) ||
+					        (wordStart && IsWordStartAt(pos)))
+						return pos;
 				}
 			}
 			pos += increment;
