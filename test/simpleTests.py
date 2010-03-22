@@ -1055,11 +1055,16 @@ class TestCaseMapping(unittest.TestCase):
 		self.ed.EmptyUndoBuffer()
 		self.ed.SetCodePage(65001)
 
-	def testASCII(self):
+	def testEmpty(self):
+		# Trying to upper case an empty string caused a crash at one stage
 		t = b"x"
 		self.ed.SetText(len(t), t)
 		self.ed.UpperCase()
 		self.assertEquals(self.ed.Contents(), b"x")
+
+	def testASCII(self):
+		t = b"x"
+		self.ed.SetText(len(t), t)
 		self.ed.SetSel(0,1)
 		self.ed.UpperCase()
 		self.assertEquals(self.ed.Contents(), b"X")
