@@ -1339,6 +1339,9 @@ const char *ScintillaGTK::CharacterSetID() const {
 }
 
 std::string ScintillaGTK::CaseMapString(const std::string &s, bool makeUpperCase) {
+#if GTK_MAJOR_VERSION < 2
+	return Editor::CaseMapString(s, makeUpperCase);
+#else
 	const char *needsFree1 = 0;	// Must be freed with delete []
 	const char *charSetBuffer = CharacterSetID();
 	const char *sUTF8 = s.c_str();
@@ -1346,17 +1349,12 @@ std::string ScintillaGTK::CaseMapString(const std::string &s, bool makeUpperCase
 	int convertedLength = rangeBytes;
 	// Change text to UTF-8
 	if (!IsUnicodeMode()) {
-#ifdef USE_CONVERTER
 		// Need to convert
 		if (*charSetBuffer) {
-			sUTF8 = ConvertText(&convertedLength, const_cast<char *>(s.c_str()), rangeBytes, 
+			sUTF8 = ConvertText(&convertedLength, const_cast<char *>(s.c_str()), rangeBytes,
 				"UTF-8", charSetBuffer, false);
 			needsFree1 = sUTF8;
 		}
-#else
-		delete []needsFree1;
-		return std::string();
-#endif
 	}
 	gchar *mapped;	// Must be freed with g_free
 	if (makeUpperCase) {
@@ -1368,20 +1366,19 @@ std::string ScintillaGTK::CaseMapString(const std::string &s, bool makeUpperCase
 	char *mappedBack = mapped;
 
 	char *needsFree2 = 0;	// Must be freed with delete []
-#ifdef USE_CONVERTER
 	if (!IsUnicodeMode()) {
 		if (*charSetBuffer) {
 			mappedBack = ConvertText(&mappedLength, mapped, mappedLength, charSetBuffer, "UTF-8", false);
 			needsFree2 = mappedBack;
 		}
 	}
-#endif
 
 	std::string ret(mappedBack, mappedLength);
 	g_free(mapped);
 	delete []needsFree1;
 	delete []needsFree2;
 	return ret;
+#endif
 }
 
 int ScintillaGTK::KeyDefault(int key, int modifiers) {
