@@ -409,7 +409,7 @@ class TestContainerUndo(unittest.TestCase):
 		self.assertEquals(self.ed.Length, 2)
 		self.assertEquals(self.UndoState(), MODI | UNDO)
 		self.ed.Undo()
-	
+
 	def testContainerActCoalesce(self):
 		self.ed.InsertText(0, self.data)
 		self.ed.AddUndoAction(5, 1)
@@ -685,7 +685,7 @@ class TestMarkers(unittest.TestCase):
 		self.assertEquals(self.ed.GetLineState(0), 0)
 		self.assertEquals(self.ed.GetLineState(1), 100)
 		self.assertEquals(self.ed.GetLineState(2), 0)
-		
+
 	def testSymbolRetrieval(self):
 		self.ed.MarkerDefine(1,3)
 		self.assertEquals(self.ed.MarkerSymbolDefined(1), 3)
@@ -844,7 +844,7 @@ class TestTextMargin(unittest.TestCase):
 		self.xite.DoEvents()
 		lineHeightIncreased = self.ed.TextHeight(0)
 		self.assertEquals(lineHeightIncreased, lineHeight + 2 + 1)
-		
+
 	def testTextMargin(self):
 		self.ed.MarginSetText(0, self.txt)
 		result = b"\0" * 10
@@ -1047,13 +1047,48 @@ class TestMultiSelection(unittest.TestCase):
 		self.assertEquals(self.ed.GetSelectionNCaret(0), 3)
 		self.assertEquals(self.ed.GetSelectionNCaretVirtualSpace(0), 0)
 
+class TestCaseMapping(unittest.TestCase):
+	def setUp(self):
+		self.xite = XiteWin.xiteFrame
+		self.ed = self.xite.ed
+		self.ed.ClearAll()
+		self.ed.EmptyUndoBuffer()
+		self.ed.SetCodePage(65001)
+
+	def testASCII(self):
+		t = b"x"
+		self.ed.SetText(len(t), t)
+		self.ed.UpperCase()
+		self.assertEquals(self.ed.Contents(), b"x")
+		self.ed.SetSel(0,1)
+		self.ed.UpperCase()
+		self.assertEquals(self.ed.Contents(), b"X")
+
+	def testUTF(self):
+		t = "å".encode("UTF-8")
+		r = "Å".encode("UTF-8")
+		self.ed.SetText(len(t), t)
+		self.ed.SetSel(0,2)
+		self.ed.UpperCase()
+		self.assertEquals(self.ed.Contents(), r)
+
+	def testUTFDifferentLength(self):
+		t = "ı".encode("UTF-8")
+		r = "I".encode("UTF-8")
+		self.ed.SetText(len(t), t)
+		self.ed.SetSel(0,2)
+		self.ed.UpperCase()
+		self.assertEquals(self.ed.Contents(), r)
+
+	# TODO: tests of case-independent searches with non-ASCII
+
 class TestLexer(unittest.TestCase):
 	def setUp(self):
 		self.xite = XiteWin.xiteFrame
 		self.ed = self.xite.ed
 		self.ed.ClearAll()
 		self.ed.EmptyUndoBuffer()
-		
+
 	def testLexerNumber(self):
 		self.ed.Lexer = self.ed.SCLEX_CPP
 		self.assertEquals(self.ed.GetLexer(), self.ed.SCLEX_CPP)
