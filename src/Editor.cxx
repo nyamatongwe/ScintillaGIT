@@ -4547,7 +4547,6 @@ void Editor::ChangeCaseOfSelection(bool makeUpperCase) {
 		size_t rangeBytes = currentNoVS.Length();
 		if (rangeBytes > 0) {
 			std::string sText(text, rangeBytes);
-			delete []text;
 
 			std::string sMapped = CaseMapString(sText, makeUpperCase);
 
@@ -4567,6 +4566,7 @@ void Editor::ChangeCaseOfSelection(bool makeUpperCase) {
 				sel.Range(r) = current;
 			}
 		}
+		delete []text;
 	}
 }
 
