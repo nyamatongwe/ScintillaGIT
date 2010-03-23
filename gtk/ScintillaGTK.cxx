@@ -195,7 +195,7 @@ private:
 	void NotifyKey(int key, int modifiers);
 	void NotifyURIDropped(const char *list);
 	const char *CharacterSetID() const;
-	virtual std::string CaseMapString(const std::string &s, bool makeUpperCase);
+	virtual std::string CaseMapString(const std::string &s, int caseMapping);
 	virtual int KeyDefault(int key, int modifiers);
 	virtual void CopyToClipboard(const SelectionText &selectedText);
 	virtual void Copy();
@@ -1338,14 +1338,21 @@ const char *ScintillaGTK::CharacterSetID() const {
 	return ::CharacterSetID(vs.styles[STYLE_DEFAULT].characterSet);
 }
 
-std::string ScintillaGTK::CaseMapString(const std::string &s, bool makeUpperCase) {
+std::string ScintillaGTK::CaseMapString(const std::string &s, int caseMapping) {
 #if GTK_MAJOR_VERSION < 2
-	return Editor::CaseMapString(s, makeUpperCase);
+	return Editor::CaseMapString(s, caseMapping);
 #else
+	if (s.size() == 0)
+		return std::string();
+
+	if (caseMapping == cmSame)
+		return s;
+
 	const char *needsFree1 = 0;	// Must be freed with delete []
 	const char *charSetBuffer = CharacterSetID();
 	const char *sUTF8 = s.c_str();
 	int rangeBytes = s.size();
+
 	int convertedLength = rangeBytes;
 	// Change text to UTF-8
 	if (!IsUnicodeMode()) {
@@ -1357,7 +1364,7 @@ std::string ScintillaGTK::CaseMapString(const std::string &s, bool makeUpperCase
 		}
 	}
 	gchar *mapped;	// Must be freed with g_free
-	if (makeUpperCase) {
+	if (caseMapping == cmUpper) {
 		mapped = g_utf8_strup(sUTF8, convertedLength);
 	} else {
 		mapped = g_utf8_strdown(sUTF8, convertedLength);

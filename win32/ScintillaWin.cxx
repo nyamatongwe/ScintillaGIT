@@ -216,7 +216,7 @@ class ScintillaWin :
 	virtual int GetCtrlID();
 	virtual void NotifyParent(SCNotification scn);
 	virtual void NotifyDoubleClick(Point pt, bool shift, bool ctrl, bool alt);
-	virtual std::string CaseMapString(const std::string &s, bool makeUpperCase);
+	virtual std::string CaseMapString(const std::string &s, int caseMapping);
 	virtual void Copy();
 	virtual void CopyAllowLine();
 	virtual bool CanPaste();
@@ -1298,9 +1298,12 @@ void ScintillaWin::NotifyDoubleClick(Point pt, bool shift, bool ctrl, bool alt) 
 			  MAKELPARAM(pt.x, pt.y));
 }
 
-std::string ScintillaWin::CaseMapString(const std::string &s, bool makeUpperCase) {
+std::string ScintillaWin::CaseMapString(const std::string &s, int caseMapping) {
 	if (s.size() == 0)
 		return std::string();
+
+	if (caseMapping == cmSame)
+		return s;
 
 	UINT cpDoc = CodePageOfDocument();
 
@@ -1309,7 +1312,7 @@ std::string ScintillaWin::CaseMapString(const std::string &s, bool makeUpperCase
 		return s;
 
 	DWORD mapFlags = LCMAP_LINGUISTIC_CASING | 
-		(makeUpperCase ? LCMAP_UPPERCASE : LCMAP_LOWERCASE);
+		((caseMapping == cmUpper) ? LCMAP_UPPERCASE : LCMAP_LOWERCASE);
 
 	// Many conversions performed by search function are short so optimize this case.
 	enum { shortSize=20 };

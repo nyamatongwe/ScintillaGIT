@@ -4537,7 +4537,7 @@ void Editor::PageMove(int direction, Selection::selTypes selt, bool stuttered) {
 	}
 }
 
-void Editor::ChangeCaseOfSelection(bool makeUpperCase) {
+void Editor::ChangeCaseOfSelection(int caseMapping) {
 	UndoGroup ug(pdoc);
 	for (size_t r=0; r<sel.Count(); r++) {
 		SelectionRange current = sel.Range(r);
@@ -4548,7 +4548,7 @@ void Editor::ChangeCaseOfSelection(bool makeUpperCase) {
 		if (rangeBytes > 0) {
 			std::string sText(text, rangeBytes);
 
-			std::string sMapped = CaseMapString(sText, makeUpperCase);
+			std::string sMapped = CaseMapString(sText, caseMapping);
 
 			if (sMapped != sText) {
 				size_t firstDifference = 0;
@@ -5160,10 +5160,10 @@ int Editor::KeyCommand(unsigned int iMessage) {
 		Duplicate(false);
 		break;
 	case SCI_LOWERCASE:
-		ChangeCaseOfSelection(false);
+		ChangeCaseOfSelection(cmLower);
 		break;
 	case SCI_UPPERCASE:
-		ChangeCaseOfSelection(true);
+		ChangeCaseOfSelection(cmUpper);
 		break;
 	case SCI_WORDPARTLEFT:
 		MovePositionTo(MovePositionSoVisible(pdoc->WordPartLeft(sel.MainCaret()), -1));
@@ -5394,15 +5394,18 @@ long Editor::SearchText(
 	return pos;
 }
 
-std::string Editor::CaseMapString(const std::string &s, bool makeUpperCase) {
+std::string Editor::CaseMapString(const std::string &s, int caseMapping) {
 	std::string ret(s);
 	for (size_t i=0; i<ret.size(); i++) {
-		if (makeUpperCase) {
-			if (ret[i] >= 'a' && ret[i] <= 'z')
-				ret[i] = static_cast<char>(ret[i] - 'a' + 'A');
-		} else {
-			if (ret[i] >= 'A' && ret[i] <= 'Z')
-				ret[i] = static_cast<char>(ret[i] - 'A' + 'a');
+		switch (caseMapping) {
+			case cmUpper:
+				if (ret[i] >= 'a' && ret[i] <= 'z')
+					ret[i] = static_cast<char>(ret[i] - 'a' + 'A');
+				break;
+			case cmLower:
+				if (ret[i] >= 'A' && ret[i] <= 'Z')
+					ret[i] = static_cast<char>(ret[i] - 'A' + 'a');
+				break;
 		}
 	}
 	return ret;
@@ -5436,8 +5439,8 @@ std::vector<SearchPair> Editor::SearchPairsFromString(const char *text, int leng
 					ret.push_back(sp);
 				} else {
 					std::string sChar(text+i, lenChar);
-					std::string sUpper = CaseMapString(sChar, true);
-					std::string sLower = CaseMapString(sChar, false);
+					std::string sUpper = CaseMapString(sChar, cmUpper);
+					std::string sLower = CaseMapString(sChar, cmLower);
 					SearchPair sp;
 					sp.sSearch = sChar;
 					if (sLower != sChar) {
@@ -5454,8 +5457,8 @@ std::vector<SearchPair> Editor::SearchPairsFromString(const char *text, int leng
 			// Not UTF-8 so case inversions simple without changes in length of characters
 			// so can just use the uppercased and lowercased versions of the search string
 			std::string sSearch(text, length);
-			std::string sUpper = CaseMapString(sSearch, true);
-			std::string sLower = CaseMapString(sSearch, false);
+			std::string sUpper = CaseMapString(sSearch, cmUpper);
+			std::string sLower = CaseMapString(sSearch, cmLower);
 			SearchPair sp;
 			sp.sSearch = sUpper;
 			sp.sCaseInverted = sLower;
