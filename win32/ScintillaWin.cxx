@@ -589,6 +589,10 @@ static unsigned int SciMessageFromEM(unsigned int iMessage) {
 }
 
 static UINT CodePageFromCharSet(DWORD characterSet, UINT documentCodePage) {
+	if (documentCodePage == SC_CP_UTF8) {
+		// The system calls here are a little slow so avoid if known case.
+		return SC_CP_UTF8;
+	}
 	CHARSETINFO ci = { 0, 0, { { 0, 0, 0, 0 }, { 0, 0 } } };
 	BOOL bci = ::TranslateCharsetInfo((DWORD*)characterSet,
 		&ci, TCI_SRCCHARSET);
@@ -1297,33 +1301,72 @@ void ScintillaWin::NotifyDoubleClick(Point pt, bool shift, bool ctrl, bool alt) 
 std::string ScintillaWin::CaseMapString(const std::string &s, bool makeUpperCase) {
 	if (s.size() == 0)
 		return std::string();
-	// Change text to UTF-16
-	std::vector<wchar_t> vwcText;
-	unsigned int lengthUTF16;
+
 	UINT cpDoc = CodePageOfDocument();
-	lengthUTF16 = ::MultiByteToWideChar(cpDoc, 0, s.c_str(), s.size(), NULL, NULL);
+
+	unsigned int lengthUTF16 = ::MultiByteToWideChar(cpDoc, 0, s.c_str(), s.size(), NULL, NULL);
 	if (lengthUTF16 == 0)	// Failed to convert
 		return s;
-	vwcText.resize(lengthUTF16);
-	::MultiByteToWideChar(cpDoc, 0, s.c_str(), s.size(), &vwcText[0], lengthUTF16);
 
 	DWORD mapFlags = LCMAP_LINGUISTIC_CASING | 
 		(makeUpperCase ? LCMAP_UPPERCASE : LCMAP_LOWERCASE);
-	int charsConverted = ::LCMapStringW(LOCALE_SYSTEM_DEFAULT, mapFlags,
-		&vwcText[0], lengthUTF16, NULL, 0);
-	std::vector<wchar_t> vwcConverted(lengthUTF16);
-	::LCMapStringW(LOCALE_SYSTEM_DEFAULT, mapFlags, &vwcText[0], lengthUTF16,
-		&vwcConverted[0], charsConverted);
-	unsigned int lengthConverted;
 
-	std::vector<char> vcConverted;
-	lengthConverted = ::WideCharToMultiByte(cpDoc, 0,
-		&vwcConverted[0], vwcConverted.size(), NULL, 0, NULL, 0);
-	vcConverted.resize(lengthConverted);
-	::WideCharToMultiByte(cpDoc, 0, &vwcConverted[0], vwcConverted.size(),
-		&vcConverted[0], vcConverted.size(), NULL, 0);
+	// Many conversions performed by search function are short so optimize this case.
+	enum { shortSize=20 };
 
-	return std::string(&vcConverted[0], vcConverted.size());
+	if (s.size() > shortSize) {
+		// Use dynamic allocations for long strings
+
+		// Change text to UTF-16
+		std::vector<wchar_t> vwcText(lengthUTF16);
+		::MultiByteToWideChar(cpDoc, 0, s.c_str(), s.size(), &vwcText[0], lengthUTF16);
+
+		// Change case
+		int charsConverted = ::LCMapStringW(LOCALE_SYSTEM_DEFAULT, mapFlags,
+			&vwcText[0], lengthUTF16, NULL, 0);
+		std::vector<wchar_t> vwcConverted(charsConverted);
+		::LCMapStringW(LOCALE_SYSTEM_DEFAULT, mapFlags, 
+			&vwcText[0], lengthUTF16, &vwcConverted[0], charsConverted);
+
+		// Change back to document encoding
+		unsigned int lengthConverted = ::WideCharToMultiByte(cpDoc, 0,
+			&vwcConverted[0], vwcConverted.size(), 
+			NULL, 0, NULL, 0);
+		std::vector<char> vcConverted(lengthConverted);
+		::WideCharToMultiByte(cpDoc, 0, 
+			&vwcConverted[0], vwcConverted.size(), 
+			&vcConverted[0], vcConverted.size(), NULL, 0);
+
+		return std::string(&vcConverted[0], vcConverted.size());
+
+	} else {
+		// Use static allocations for short strings as much faster
+		// A factor of 15 for single character strings
+
+		// Change text to UTF-16
+		wchar_t vwcText[shortSize];
+		::MultiByteToWideChar(cpDoc, 0, s.c_str(), s.size(), vwcText, lengthUTF16);
+
+		// Change case
+		int charsConverted = ::LCMapStringW(LOCALE_SYSTEM_DEFAULT, mapFlags,
+			vwcText, lengthUTF16, NULL, 0);
+		// Full mapping may produce up to 3 characters per input character
+		wchar_t vwcConverted[shortSize*3];
+		::LCMapStringW(LOCALE_SYSTEM_DEFAULT, mapFlags, vwcText, lengthUTF16,
+			vwcConverted, charsConverted);
+
+		// Change back to document encoding
+		unsigned int lengthConverted = ::WideCharToMultiByte(cpDoc, 0,
+			vwcConverted, charsConverted, 
+			NULL, 0, NULL, 0);
+		// Each UTF-16 code unit may need up to 3 bytes in UTF-8
+		char vcConverted[shortSize * 3 * 3];
+		::WideCharToMultiByte(cpDoc, 0, 
+			vwcConverted, charsConverted, 
+			vcConverted, lengthConverted, NULL, 0);
+
+		return std::string(vcConverted, lengthConverted);
+	}
 }
 
 void ScintillaWin::Copy() {
