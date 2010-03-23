@@ -261,6 +261,7 @@ public:
 	int NextWordEnd(int pos, int delta);
 	int Length() const { return cb.Length(); }
 	void Allocate(int newSize) { cb.Allocate(newSize); }
+	int ExtractChar(int pos, int &widthChar);
 	long FindText(int minPos, int maxPos, const char *s, bool caseSensitive, bool word, 
 		bool wordStart, bool regExp, int flags, int *length, const std::vector<SearchPair> &spl);
 	const char *SubstituteByPosition(const char *text, int *length);

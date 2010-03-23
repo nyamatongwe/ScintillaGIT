@@ -1085,6 +1085,83 @@ static inline char MakeLowerCase(char ch) {
 		return static_cast<char>(ch - 'A' + 'a');
 }
 
+int Document::ExtractChar(int pos, int &widthChar) {
+	unsigned char ch = static_cast<unsigned char>(cb.CharAt(pos));
+	int value = 0;
+	if (ch < 0x80) {
+		value = ch;
+		widthChar = 1;
+	} else if (ch < 0x80 + 0x40 + 0x20) {
+		value = (ch & 0x1F) << 6;
+		ch = static_cast<unsigned char>(cb.CharAt(pos+1));
+		value += ch & 0x7F;
+		widthChar = 2;
+	} else if (ch < 0x80 + 0x40 + 0x20 + 0x10) {
+		value = (ch & 0xF) << 12;
+		ch = static_cast<unsigned char>(cb.CharAt(pos+1));
+		value += (ch & 0x3F) << 6;
+		ch = static_cast<unsigned char>(cb.CharAt(pos+2));
+		value += ch & 0x3F;
+		widthChar = 3;
+	} else {
+		value = (int)((ch & 0x7) << 18);
+		ch = static_cast<unsigned char>(cb.CharAt(pos+1));
+		value += (ch & 0x3F) << 12;
+		ch = static_cast<unsigned char>(cb.CharAt(pos+2));
+		value += (ch & 0x3F) << 6;
+		ch = static_cast<unsigned char>(cb.CharAt(pos+3));
+		value += ch & 0x3F;
+		widthChar = 4;
+	}
+	return value;
+}
+
+enum { SURROGATE_LEAD_FIRST = 0xD800 };
+enum { SURROGATE_TRAIL_FIRST = 0xDC00 };
+enum { SURROGATE_TRAIL_LAST = 0xDFFF };
+
+#include <windows.h>
+#undef FindText
+#include "UniConversion.h"
+
+int Flatten(int ch, char *flattened) {
+	wchar_t wides[2];
+	int nWides = 1;
+	if (ch >= 0x10000) {
+		/// Turn into a surrogate pair
+		ch -= 0x10000;
+		wides[0] = (wchar_t)((ch >> 10) + SURROGATE_LEAD_FIRST);
+		wides[1] = (wchar_t)((ch & 0x3ff) + SURROGATE_TRAIL_FIRST);
+		nWides = 2;
+	} else {
+		wides[0] = (wchar_t)(ch);
+	}
+
+	wchar_t widesFlat[20];
+	int lenFlat = ::LCMapStringW(LOCALE_SYSTEM_DEFAULT, 
+		LCMAP_LINGUISTIC_CASING | LCMAP_UPPERCASE, 
+		wides, nWides, widesFlat, 20);
+	unsigned int lenFlattened = UTF8Length(widesFlat, lenFlat);
+	UTF8FromUTF16(widesFlat, lenFlat, flattened, lenFlattened);
+
+	return lenFlattened;
+}
+
+std::string Flatten(const char *flattened, int len) {
+	wchar_t wides[200];
+	int nWides = ::MultiByteToWideChar(65001, 0, flattened, len, wides, 200);
+
+	wchar_t widesFlat[200];
+	int lenFlat = ::LCMapStringW(LOCALE_SYSTEM_DEFAULT,
+		LCMAP_LINGUISTIC_CASING | LCMAP_UPPERCASE, 
+		wides, nWides, widesFlat, 200);
+	unsigned int lenOut = UTF8Length(widesFlat, lenFlat);
+	char outs[600];
+	UTF8FromUTF16(widesFlat, lenFlat, outs, lenOut);
+
+	return std::string(outs, lenOut);
+}
+
 /**
  * Find text in document, supporting both forward and backward
  * searches (just pass minPos > maxPos to do a backward search)
@@ -1115,11 +1192,12 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 			endSearch = endPos - lengthFind + 1;
 		}
 		//Platform::DebugPrintf("Find %d %d %s %d\n", startPos, endPos, ft->lpstrText, lengthFind);
-		char firstChar = s[0];
+		ElapsedTime et;
 		int pos = forward ? startPos : (startPos - 1);
-		while (forward ? (pos < endSearch) : (pos >= endSearch)) {
-			char ch = CharAt(pos);
-			if (caseSensitive) {
+		char firstChar = s[0];
+		if (caseSensitive) {
+			while (forward ? (pos < endSearch) : (pos >= endSearch)) {
+				char ch = CharAt(pos);
 				if (ch == firstChar) {
 					bool found = true;
 					if (pos + lengthFind > Platform::Maximum(startPos, endPos)) found = false;
@@ -1132,12 +1210,61 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 						if ((!word && !wordStart) ||
 						        (word && IsWordAt(pos, pos + lengthFind)) ||
 						        (wordStart && IsWordStartAt(pos)))
+							Platform::DebugPrintf("Found exact: %9.6g \n", et.Duration());
 							return pos;
 					}
 				}
-			} else {
-				bool found = true;
-				int endMatch = Platform::Maximum(startPos, endPos);
+				pos += increment;
+				if (dbcsCodePage && (pos >= 0)) {
+					// Ensure trying to match from start of character
+					pos = MovePositionOutsideChar(pos, increment, false);
+				}
+			}
+		} else {
+			int endMatch = Platform::Maximum(startPos, endPos);
+			std::string searchThing = Flatten(s, *length);
+			while (forward ? (pos < endSearch) : (pos >= endSearch)) {
+				bool matchChar = true;
+				int matchOff = 0;
+				int searchOff = 0;
+				int widthFirst = 0;
+				while (matchChar && (pos + matchOff < endMatch)) {
+					int widthChar;
+					int chCurrent = ExtractChar(pos + matchOff, widthChar);
+					if (!widthFirst)
+						widthFirst = widthChar;
+					char flattened[100];
+					int lenFlat;
+					if (widthChar == 1) {
+						lenFlat = 1;
+						if (chCurrent >= 'a' && chCurrent <= 'z') {
+							flattened[0] = chCurrent - 'a' + 'A';
+						} else {
+							flattened[0] = chCurrent;
+						}
+					} else {
+						lenFlat = Flatten(chCurrent, flattened);
+					}
+					// Does flattened match the buffer
+					matchChar = 0 == strncmp(flattened, searchThing.c_str() + matchOff, lenFlat);
+					matchOff += widthChar;
+					searchOff += lenFlat;
+					if (searchOff >= static_cast<int>(searchThing.size()))
+						break;
+				}
+				if (matchChar) {
+					if ((!word && !wordStart) ||
+					        (word && IsWordAt(pos, pos + lengthFind)) ||
+							(wordStart && IsWordStartAt(pos))) {
+						*length = searchOff;
+						Platform::DebugPrintf("Found: %9.6g \n", et.Duration());
+						return pos;
+					}
+				}
+				pos += widthFirst;
+			}
+		}
+#ifdef MOLDY
 				size_t elem = 0;
 				int posMatch = 0;
 				// Check through the document matching against each element
@@ -1153,7 +1280,7 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 					size_t matchLen = 0;
 					bool elemMatches = true;
 					for (size_t j=0; j<spl[elem].sSearch.size(); j++) {
-						ch = CharAt(pos + posMatch + j);
+						char ch = CharAt(pos + posMatch + j);
 						if (ch != spl[elem].sSearch[j]) {
 							elemMatches = false;
 							break;
@@ -1165,7 +1292,7 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 						// Check match with spl[elem].sCaseInverted
 						elemMatches = true;
 						for (size_t j=0; j<spl[elem].sCaseInverted.size(); j++) {
-							ch = CharAt(pos + posMatch + j);
+							char ch = CharAt(pos + posMatch + j);
 							if (ch != spl[elem].sCaseInverted[j]) {
 								elemMatches = false;
 								break;
@@ -1193,13 +1320,14 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 						return pos;
 					}
 				}
-			}
-			pos += increment;
-			if (dbcsCodePage && (pos >= 0)) {
-				// Ensure trying to match from start of character
-				pos = MovePositionOutsideChar(pos, increment, false);
+				pos += increment;
+				if (dbcsCodePage && (pos >= 0)) {
+					// Ensure trying to match from start of character
+					pos = MovePositionOutsideChar(pos, increment, false);
+				}
 			}
 		}
+#endif
 	}
 	//Platform::DebugPrintf("Not found\n");
 	return -1;
