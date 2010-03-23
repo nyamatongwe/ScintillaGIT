@@ -2,3 +2,8 @@
 *.a
 *.obj
 *.pyc
+*.dll
+*.exp
+*.lib
+*.pdb
+*.res
