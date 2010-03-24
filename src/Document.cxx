@@ -33,6 +33,7 @@
 #include "Decoration.h"
 #include "Document.h"
 #include "RESearch.h"
+#include "UniConversion.h"
 
 #ifdef SCI_NAMESPACE
 using namespace Scintilla;
@@ -1085,6 +1086,156 @@ static inline char MakeLowerCase(char ch) {
 		return static_cast<char>(ch - 'A' + 'a');
 }
 
+static bool GoodTrailByte(int v) {
+	return (v >= 0x80) && (v < 0xc0);
+}
+
+size_t Document::ExtractChar(int pos, char *bytes) {
+	unsigned char ch = static_cast<unsigned char>(cb.CharAt(pos));
+	size_t widthChar = UTF8CharLength(ch);
+Platform::DebugPrintf("    Extract:  width=%d   %x\n", widthChar, ch);
+	bytes[0] = ch;
+	for (size_t i=1; i<widthChar; i++) {
+		bytes[i] = cb.CharAt(pos+i);
+		if (!GoodTrailByte(static_cast<unsigned char>(bytes[i]))) // Bad byte
+		{Platform::DebugPrintf("    Bad Trail:  [%d]   %x\n", i, bytes[i]);
+			widthChar = 1;
+		}
+	}
+	return widthChar;
+}
+
+enum { SURROGATE_LEAD_FIRST = 0xD800 };
+enum { SURROGATE_TRAIL_FIRST = 0xDC00 };
+enum { SURROGATE_TRAIL_LAST = 0xDFFF };
+
+#ifdef GTK
+
+#include <gtk/gtk.h>
+
+#else
+
+#include <windows.h>
+#undef FindText
+
+#endif
+
+#ifdef OLD_WAY
+int Flatten(int ch, char *flattened, char *mixed, int lenMixed) {
+#ifdef GTK
+	gchar *mapped = g_utf8_casefold(mixed, lenMixed);
+	size_t lenMapped = strlen(mapped);
+	memcpy(flattened, mapped, lenMapped);
+	g_free(mapped);
+	return lenMapped;
+#else
+	wchar_t wides[2];
+	int nWides = 1;
+	if (ch >= 0x10000) {
+		/// Turn into a surrogate pair
+		ch -= 0x10000;
+		wides[0] = (wchar_t)((ch >> 10) + SURROGATE_LEAD_FIRST);
+		wides[1] = (wchar_t)((ch & 0x3ff) + SURROGATE_TRAIL_FIRST);
+		nWides = 2;
+	} else {
+		wides[0] = (wchar_t)(ch);
+	}
+
+	wchar_t widesFlat[20];
+	int lenFlat = ::LCMapStringW(LOCALE_SYSTEM_DEFAULT, 
+		LCMAP_LINGUISTIC_CASING | LCMAP_UPPERCASE, 
+		wides, nWides, widesFlat, 20);
+	unsigned int lenFlattened = UTF8Length(widesFlat, lenFlat);
+	UTF8FromUTF16(widesFlat, lenFlat, flattened, lenFlattened);
+
+	return lenFlattened;
+#endif
+}
+
+int Flatten(char *flattened, const char *mixed, int lenMixed) {
+#ifdef GTK
+	gchar *mapped = g_utf8_casefold(mixed, lenMixed);
+	size_t lenMapped = strlen(mapped);
+	memcpy(flattened, mapped,  lenMapped); 
+	g_free(mapped);
+Platform::DebugPrintf("Flattened '%s' -> '%s'\n", mixed, flattened);
+	return lenMapped;
+#else
+	wchar_t wides[200];
+	int nWides = ::MultiByteToWideChar(65001, 0, mixed, lenMixed, wides, 200);
+
+	wchar_t widesFlat[200];
+	int lenFlat = ::LCMapStringW(LOCALE_SYSTEM_DEFAULT,
+		LCMAP_LINGUISTIC_CASING | LCMAP_UPPERCASE, 
+		wides, nWides, widesFlat, 200);
+	unsigned int lenOut = UTF8Length(widesFlat, lenFlat);
+	UTF8FromUTF16(widesFlat, lenFlat, flattened, lenOut);
+	return lenOut;
+#endif
+}
+#endif
+
+class Flattener {
+public:
+	virtual size_t Flatten(char *flattened, size_t sizeFlattened, const char *mixed, size_t lenMixed) = 0;
+};
+
+#ifdef GTK
+
+class FlattenerTable {
+	char mapping[256];
+public:
+	FlattenerTable() {
+		for (size_t iChar=0; iChar<sizeof(mapping); iChar++) {
+			if (iChar >= 'A' && iChar <= 'Z') {
+				mapping[iChar] = iChar - 'A' + 'a';
+			} else if (iChar >= 0xC0 && iChar <= 0xDE) {
+				mapping[iChar] = iChar - 0xC0 + 0xE0;
+			} else {
+				mapping[iChar] = iChar;
+			}
+		}
+	}
+	virtual size_t Flatten(char *flattened, size_t sizeFlattened, const char *mixed, size_t lenMixed) {
+		if (lenMixed > sizeFlattened) {
+			return 0;
+		} else {
+			for (size_t i=0; i<lenMixed; i++) {
+				flattened[i] = mapping[static_cast<unsigned char>(mixed[i])];
+			}
+			return lenMixed;
+		}
+	}
+};
+
+class FlattenerUTF8 {
+public:
+	FlattenerUTF8() {
+	}
+	virtual size_t Flatten(char *flattened, size_t sizeFlattened, const char *mixed, size_t lenMixed) {
+		if (lenMixed == 1) {
+			if (mixed[0] >= 'A' && mixed[0] <= 'Z') {
+				flattened[0] = mixed[0] - 'A' + 'a';
+			} else {
+				flattened[0] = mixed[0];
+			}
+			return 1;
+		} else {
+			gchar *mapped = g_utf8_casefold(mixed, lenMixed);
+			size_t lenMapped = strlen(mapped);
+			if (lenMapped < sizeFlattened) {
+				memcpy(flattened, mapped,  lenMapped); 
+			} else {
+				lenMapped = 0;
+			}
+			g_free(mapped);
+			return lenMapped;
+		}
+	}
+};
+
+#endif
+
 /**
  * Find text in document, supporting both forward and backward
  * searches (just pass minPos > maxPos to do a backward search)
@@ -1115,11 +1266,12 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 			endSearch = endPos - lengthFind + 1;
 		}
 		//Platform::DebugPrintf("Find %d %d %s %d\n", startPos, endPos, ft->lpstrText, lengthFind);
-		char firstChar = s[0];
+		ElapsedTime et;
 		int pos = forward ? startPos : (startPos - 1);
-		while (forward ? (pos < endSearch) : (pos >= endSearch)) {
-			char ch = CharAt(pos);
-			if (caseSensitive) {
+		char firstChar = s[0];
+		if (caseSensitive) {
+			while (forward ? (pos < endSearch) : (pos >= endSearch)) {
+				char ch = CharAt(pos);
 				if (ch == firstChar) {
 					bool found = true;
 					if (pos + lengthFind > Platform::Maximum(startPos, endPos)) found = false;
@@ -1132,12 +1284,98 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 						if ((!word && !wordStart) ||
 						        (word && IsWordAt(pos, pos + lengthFind)) ||
 						        (wordStart && IsWordStartAt(pos)))
+							Platform::DebugPrintf("Found exact: %9.6g \n", et.Duration());
 							return pos;
 					}
 				}
-			} else {
-				bool found = true;
-				int endMatch = Platform::Maximum(startPos, endPos);
+				pos += increment;
+				if (dbcsCodePage && (pos >= 0)) {
+					// Ensure trying to match from start of character
+					pos = MovePositionOutsideChar(pos, increment, false);
+				}
+			}
+		} else if (SC_CP_UTF8 == dbcsCodePage) {
+			FlattenerUTF8 caseFolder;
+			const size_t maxBytesCharacter = 4;
+			const size_t maxFoldingExpansion = 4;
+			int endMatch = Platform::Maximum(startPos, endPos);
+			std::vector<char> searchThing(*length * maxBytesCharacter * maxFoldingExpansion + 1);
+			size_t lenSearch = caseFolder.Flatten(&searchThing[0], searchThing.size(), s, *length);
+			while (forward ? (pos < endSearch) : (pos >= endSearch)) {
+				bool matchChar = true;
+				int matchOff = 0;
+				int searchOff = 0;
+				int widthFirst = 0;
+				while (matchChar && (pos + matchOff < endMatch)) {
+					int widthChar;
+					char bytes[maxBytesCharacter + 1];
+					widthChar = ExtractChar(pos + matchOff, bytes);
+					bytes[maxBytesCharacter] = 0;
+					Platform::DebugPrintf("  Find:  width=%d   '%s'\n", widthChar, bytes);
+					if (!widthFirst)
+						widthFirst = widthChar;
+					char flattened[maxBytesCharacter * maxFoldingExpansion + 1];
+					int lenFlat = caseFolder.Flatten(flattened, sizeof(flattened), bytes, widthChar);
+					flattened[lenFlat] = 0;
+					// Does flattened match the buffer
+					matchChar = 0 == strncmp(flattened, &searchThing[0] + searchOff, lenFlat);
+					matchOff += widthChar;
+					searchOff += lenFlat;
+					if (searchOff >= static_cast<int>(lenSearch))
+						break;
+				}
+				if (matchChar && (searchOff == static_cast<int>(lenSearch))) {
+					if ((!word && !wordStart) ||
+					        (word && IsWordAt(pos, pos + lengthFind)) ||
+							(wordStart && IsWordStartAt(pos))) {
+						*length = matchOff;
+						Platform::DebugPrintf("%d Found:  len= %d    time = %9.6g \n", dbcsCodePage, matchOff, et.Duration());
+						return pos;
+					}
+				}
+				if (forward) {
+					pos += widthFirst;
+				} else {
+					pos--;
+					if (pos > 0) {
+						// Ensure trying to match from start of character
+						pos = MovePositionOutsideChar(pos, increment, false);
+					}
+				}
+			}
+		} else {
+			FlattenerTable caseFolder;
+			std::vector<char> searchThing(*length + 1);
+			caseFolder.Flatten(&searchThing[0], searchThing.size(), s, *length);
+			while (forward ? (pos < endSearch) : (pos >= endSearch)) {
+				char ch = CharAt(pos);
+				char flattened[2];
+				caseFolder.Flatten(flattened, sizeof(flattened), &ch, 1);
+				if (flattened[0] == searchThing[0]) {
+					bool found = true;
+					if (pos + lengthFind > Platform::Maximum(startPos, endPos)) found = false;
+					for (int posMatch = 1; posMatch < lengthFind && found; posMatch++) {
+						ch = CharAt(pos + posMatch);
+						caseFolder.Flatten(flattened, sizeof(flattened), &ch, 1);
+						if (flattened[0] != searchThing[posMatch])
+							found = false;
+					}
+					if (found) {
+						if ((!word && !wordStart) ||
+						        (word && IsWordAt(pos, pos + lengthFind)) ||
+						        (wordStart && IsWordStartAt(pos)))
+							Platform::DebugPrintf("Found8: %9.6g \n", et.Duration());
+							return pos;
+					}
+				}
+				pos += increment;
+				if (dbcsCodePage && (pos >= 0)) {
+					// Ensure trying to match from start of character
+					pos = MovePositionOutsideChar(pos, increment, false);
+				}
+			}
+		}
+#ifdef MOLDY
 				size_t elem = 0;
 				int posMatch = 0;
 				// Check through the document matching against each element
@@ -1153,7 +1391,7 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 					size_t matchLen = 0;
 					bool elemMatches = true;
 					for (size_t j=0; j<spl[elem].sSearch.size(); j++) {
-						ch = CharAt(pos + posMatch + j);
+						char ch = CharAt(pos + posMatch + j);
 						if (ch != spl[elem].sSearch[j]) {
 							elemMatches = false;
 							break;
@@ -1165,7 +1403,7 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 						// Check match with spl[elem].sCaseInverted
 						elemMatches = true;
 						for (size_t j=0; j<spl[elem].sCaseInverted.size(); j++) {
-							ch = CharAt(pos + posMatch + j);
+							char ch = CharAt(pos + posMatch + j);
 							if (ch != spl[elem].sCaseInverted[j]) {
 								elemMatches = false;
 								break;
@@ -1193,13 +1431,14 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 						return pos;
 					}
 				}
-			}
-			pos += increment;
-			if (dbcsCodePage && (pos >= 0)) {
-				// Ensure trying to match from start of character
-				pos = MovePositionOutsideChar(pos, increment, false);
+				pos += increment;
+				if (dbcsCodePage && (pos >= 0)) {
+					// Ensure trying to match from start of character
+					pos = MovePositionOutsideChar(pos, increment, false);
+				}
 			}
 		}
+#endif
 	}
 	//Platform::DebugPrintf("Not found\n");
 	return -1;
