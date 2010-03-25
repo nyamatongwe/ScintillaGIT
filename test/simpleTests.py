@@ -1128,7 +1128,7 @@ class TestCaseInsensitiveSearch(unittest.TestCase):
 		self.ed.TargetEnd = self.ed.Length-1
 		self.ed.SearchFlags = 0
 		pos = self.ed.SearchInTarget(len(searchString), searchString)
-		self.assertEquals(0, pos)
+		self.assertEquals(-1, pos)
 
 	def testASCII(self):
 		text = b" x X"
@@ -1175,9 +1175,9 @@ class TestCaseInsensitiveSearch(unittest.TestCase):
 	def testUTFDifferentLength(self):
 		# Searching for a two byte string "ı" finds a single byte "I"
 		self.ed.SetCodePage(65001)
-		text = "FråndI Ååı $".encode("UTF-8")
+		text = "Fråndi Ååİ $".encode("UTF-8")
 		firstPosition = len("Frånd".encode("UTF-8"))
-		searchString = "ı".encode("UTF-8")
+		searchString = "İ".encode("UTF-8")
 		self.assertEquals(len(searchString), 2)
 		self.ed.SetText(len(text), text)
 		self.ed.TargetStart = 0
