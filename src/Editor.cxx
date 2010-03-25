@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <memory>
 
 // With Borland C++ 5.5, including <string> includes Windows.h leading to defining
 // FindText to FindTextA which makes calls here to Document::FindText fail.
@@ -4558,9 +4559,9 @@ void Editor::ChangeCaseOfSelection(int caseMapping) {
 				while (sMapped[lastDifference] == sText[lastDifference])
 					lastDifference--;
 				size_t endSame = sMapped.size() - 1 - lastDifference;
-				pdoc->DeleteChars(currentNoVS.Start().Position() + firstDifference, 
+				pdoc->DeleteChars(currentNoVS.Start().Position() + firstDifference,
 					rangeBytes - firstDifference - endSame);
-				pdoc->InsertString(currentNoVS.Start().Position() + firstDifference, 
+				pdoc->InsertString(currentNoVS.Start().Position() + firstDifference,
 					sMapped.c_str() + firstDifference, lastDifference - firstDifference + 1);
 				// Automatic movement changes selection so reset to exactly the same as it was.
 				sel.Range(r) = current;
@@ -5310,6 +5311,39 @@ void Editor::Indent(bool forwards) {
 	}
 }
 
+class CaseFolderASCII : public CaseFolder {
+protected:
+	char mapping[256];
+public:
+	CaseFolderASCII() {
+		for (size_t iChar=0; iChar<sizeof(mapping); iChar++) {
+			if (iChar >= 'A' && iChar <= 'Z') {
+				mapping[iChar] = static_cast<char>(iChar - 'A' + 'a');
+			} else {
+				mapping[iChar] = static_cast<char>(iChar);
+			}
+		}
+	}
+	~CaseFolderASCII() {
+	}
+	virtual size_t Fold(char *folded, size_t sizeFolded, const char *mixed, size_t lenMixed) {
+		if (lenMixed > sizeFolded) {
+			return 0;
+		} else {
+			for (size_t i=0; i<lenMixed; i++) {
+				folded[i] = mapping[static_cast<unsigned char>(mixed[i])];
+			}
+			return lenMixed;
+		}
+	}
+};
+
+
+CaseFolder *Editor::CaseFolderForEncoding() {
+	// Simple default that only maps ASCII upper case to lower case.
+	return new CaseFolderASCII();
+}
+
 /**
  * Search of a text in the document, in the given range.
  * @return The position of the found text, -1 if not found.
@@ -5321,7 +5355,7 @@ long Editor::FindText(
 
 	Sci_TextToFind *ft = reinterpret_cast<Sci_TextToFind *>(lParam);
 	int lengthFound = istrlen(ft->lpstrText);
-	std::vector<SearchPair> spl = SearchPairsFromString(ft->lpstrText, lengthFound);
+	std::auto_ptr<CaseFolder> pcf(CaseFolderForEncoding());
 	int pos = pdoc->FindText(ft->chrg.cpMin, ft->chrg.cpMax, ft->lpstrText,
 	        (wParam & SCFIND_MATCHCASE) != 0,
 	        (wParam & SCFIND_WHOLEWORD) != 0,
@@ -5329,7 +5363,7 @@ long Editor::FindText(
 	        (wParam & SCFIND_REGEXP) != 0,
 	        wParam,
 	        &lengthFound,
-			spl);
+			pcf.get());
 	if (pos != -1) {
 		ft->chrgText.cpMin = pos;
 		ft->chrgText.cpMax = pos + lengthFound;
@@ -5366,7 +5400,7 @@ long Editor::SearchText(
 	const char *txt = reinterpret_cast<char *>(lParam);
 	int pos;
 	int lengthFound = istrlen(txt);
-	std::vector<SearchPair> spl = SearchPairsFromString(txt, lengthFound);
+	std::auto_ptr<CaseFolder> pcf(CaseFolderForEncoding());
 	if (iMessage == SCI_SEARCHNEXT) {
 		pos = pdoc->FindText(searchAnchor, pdoc->Length(), txt,
 		        (wParam & SCFIND_MATCHCASE) != 0,
@@ -5375,7 +5409,7 @@ long Editor::SearchText(
 		        (wParam & SCFIND_REGEXP) != 0,
 		        wParam,
 		        &lengthFound,
-				spl);
+				pcf.get());
 	} else {
 		pos = pdoc->FindText(searchAnchor, 0, txt,
 		        (wParam & SCFIND_MATCHCASE) != 0,
@@ -5384,9 +5418,8 @@ long Editor::SearchText(
 		        (wParam & SCFIND_REGEXP) != 0,
 		        wParam,
 		        &lengthFound,
-				spl);
+				pcf.get());
 	}
-
 	if (pos != -1) {
 		SetSelection(pos, pos + lengthFound);
 	}
@@ -5411,72 +5444,14 @@ std::string Editor::CaseMapString(const std::string &s, int caseMapping) {
 	return ret;
 }
 
-std::vector<SearchPair> Editor::SearchPairsFromString(const char *text, int length) {
-	std::vector<SearchPair> ret;
-	if (!(searchFlags & SCFIND_MATCHCASE) && !(searchFlags & SCFIND_REGEXP)) {
-		if (IsUnicodeMode()) {
-			// For UTF-8 the upper and lower case forms of a character may differ in any
-			// byte. For example the upper and lower case forms of ARMENIAN LETTER 
-			// YIWN are \xD5\x92 and \xD6\x82. Therefore, each character case must be 
-			// matched as a whole and it is not possible to just create upper case and 
-			// lower case mappings of the search string (as is done for other encodings)
-			// and allow matching against each byte from either.
-			// A case mapping may also change the length of the text although this normally 
-			// happens only when full case folding is used which appears to be the default on 
-			// GTK+ but not on Windows. For example, the OHM SIGN \xE2\x84\xA6 may lower 
-			// case to GREEK SMALL LETTER OMEGA which is only two bytes \xCF\x89.
-			// Hence each element in the check list is a pair of strings that may differ in length.
-			int i=0;
-			// For each (possibly multibyte) character in text
-			while (i < length) {
-				int lenChar = UTF8CharLength(text[i]);
-				if ((lenChar + i) > length) {
-					// Not enough bytes left in text so bad UTF-8
-					std::string sChar(text+i, length - i);
-					SearchPair sp;
-					sp.sSearch = sChar;
-					sp.sCaseInverted = sChar;
-					ret.push_back(sp);
-				} else {
-					std::string sChar(text+i, lenChar);
-					std::string sUpper = CaseMapString(sChar, cmUpper);
-					std::string sLower = CaseMapString(sChar, cmLower);
-					SearchPair sp;
-					sp.sSearch = sChar;
-					if (sLower != sChar) {
-						sp.sCaseInverted = sLower;
-					} else {
-						// sChar may be same as sUpper or different
-						sp.sCaseInverted = sUpper;
-					}
-					ret.push_back(sp);
-				}
-				i += lenChar;
-			}
-		} else {
-			// Not UTF-8 so case inversions simple without changes in length of characters
-			// so can just use the uppercased and lowercased versions of the search string
-			std::string sSearch(text, length);
-			std::string sUpper = CaseMapString(sSearch, cmUpper);
-			std::string sLower = CaseMapString(sSearch, cmLower);
-			SearchPair sp;
-			sp.sSearch = sUpper;
-			sp.sCaseInverted = sLower;
-			ret.push_back(sp);
-		}
-	}
-
-	return ret;
-}
-
 /**
  * Search for text in the target range of the document.
  * @return The position of the found text, -1 if not found.
  */
 long Editor::SearchInTarget(const char *text, int length) {
-	const std::vector<SearchPair> &spl = SearchPairsFromString(text, length);
 	int lengthFound = length;
 
+	std::auto_ptr<CaseFolder> pcf(CaseFolderForEncoding());
 	int pos = pdoc->FindText(targetStart, targetEnd, text,
 	        (searchFlags & SCFIND_MATCHCASE) != 0,
 	        (searchFlags & SCFIND_WHOLEWORD) != 0,
@@ -5484,7 +5459,7 @@ long Editor::SearchInTarget(const char *text, int length) {
 	        (searchFlags & SCFIND_REGEXP) != 0,
 	        searchFlags,
 	        &lengthFound,
-			spl);
+			pcf.get());
 	if (pos != -1) {
 		targetStart = pos;
 		targetEnd = pos + lengthFound;
