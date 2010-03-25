@@ -56,9 +56,7 @@
 
 #include "gtk/gtksignal.h"
 #include "gtk/gtkmarshal.h"
-#if GLIB_MAJOR_VERSION >= 2
 #include "scintilla-marshal.h"
-#endif
 
 #ifdef SCI_LEXER
 #include <glib.h>
