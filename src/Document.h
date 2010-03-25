@@ -130,6 +130,7 @@ public:
 	virtual ~CaseFolderTable();
 	virtual size_t Fold(char *folded, size_t sizeFolded, const char *mixed, size_t lenMixed);
 	void SetTranslation(char ch, char chTranslation);
+	void StandardASCII();
 };
 
 /**

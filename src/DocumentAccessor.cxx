@@ -10,9 +10,6 @@
 #include <ctype.h>
 #include <stdio.h>
 
-#include <string>
-#include <vector>
-
 #include "Platform.h"
 
 #include "PropSet.h"

@@ -44,7 +44,6 @@
 #include "Selection.h"
 #include "PositionCache.h"
 #include "Editor.h"
-#include "UniConversion.h"
 
 #ifdef SCI_NAMESPACE
 using namespace Scintilla;
@@ -5311,18 +5310,10 @@ void Editor::Indent(bool forwards) {
 	}
 }
 
-class CaseFolderASCII : public CaseFolder {
-protected:
-	char mapping[256];
+class CaseFolderASCII : public CaseFolderTable {
 public:
 	CaseFolderASCII() {
-		for (size_t iChar=0; iChar<sizeof(mapping); iChar++) {
-			if (iChar >= 'A' && iChar <= 'Z') {
-				mapping[iChar] = static_cast<char>(iChar - 'A' + 'a');
-			} else {
-				mapping[iChar] = static_cast<char>(iChar);
-			}
-		}
+		StandardASCII();
 	}
 	~CaseFolderASCII() {
 	}

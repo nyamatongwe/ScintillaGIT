@@ -1306,6 +1306,7 @@ class CaseFolderUTF8  : public CaseFolderTable {
 	std::vector<wchar_t> utf16Folded;
 public:
 	CaseFolderUTF8() {
+		StandardASCII();
 	}
 	virtual size_t Fold(char *folded, size_t sizeFolded, const char *mixed, size_t lenMixed) {
 		if ((lenMixed == 1) && (sizeFolded > 0)) {
@@ -1343,6 +1344,7 @@ CaseFolder *ScintillaWin::CaseFolderForEncoding() {
 	} else {
 		CaseFolderTable *pcf = new CaseFolderTable();
 		if (pdoc->dbcsCodePage == 0) {
+			pcf->StandardASCII();
 			// Only for single byte encodings
 			UINT cpDoc = CodePageOfDocument();
 			for (int i=0x80; i<0x100; i++) {

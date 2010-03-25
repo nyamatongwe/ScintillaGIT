@@ -1093,53 +1093,20 @@ static bool GoodTrailByte(int v) {
 size_t Document::ExtractChar(int pos, char *bytes) {
 	unsigned char ch = static_cast<unsigned char>(cb.CharAt(pos));
 	size_t widthChar = UTF8CharLength(ch);
-//Platform::DebugPrintf("    Extract:  width=%d   %x\n", widthChar, ch);
 	bytes[0] = ch;
 	for (size_t i=1; i<widthChar; i++) {
 		bytes[i] = cb.CharAt(pos+i);
-		if (!GoodTrailByte(static_cast<unsigned char>(bytes[i]))) // Bad byte
-		{Platform::DebugPrintf("    Bad Trail:  [%d]   %x\n", i, bytes[i]);
+		if (!GoodTrailByte(static_cast<unsigned char>(bytes[i]))) { // Bad byte
 			widthChar = 1;
 		}
 	}
 	return widthChar;
 }
 
-enum { SURROGATE_LEAD_FIRST = 0xD800 };
-enum { SURROGATE_TRAIL_FIRST = 0xDC00 };
-enum { SURROGATE_TRAIL_LAST = 0xDFFF };
-
-#ifdef GTK
-
-#include <gtk/gtk.h>
-
-#else
-
-#include <windows.h>
-#undef FindText
-
-#endif
-
-#ifdef GTK
-
-#else
-
-#endif
-
 CaseFolderTable::CaseFolderTable() {
 	for (size_t iChar=0; iChar<sizeof(mapping); iChar++) {
-		if (iChar >= 'A' && iChar <= 'Z') {
-			mapping[iChar] = static_cast<char>(iChar - 'A' + 'a');
-		//} else if (iChar >= 0xC0 && iChar <= 0xDE) {
-		//	mapping[iChar] = iChar - 0xC0 + 0xE0;
-		} else {
-			mapping[iChar] = static_cast<char>(iChar);
-		}
+		mapping[iChar] = static_cast<char>(iChar);
 	}
-}
-
-void CaseFolderTable::SetTranslation(char ch, char chTranslation) {
-	mapping[static_cast<unsigned char>(ch)] = chTranslation;
 }
 
 CaseFolderTable::~CaseFolderTable() {
@@ -1153,6 +1120,20 @@ size_t CaseFolderTable::Fold(char *folded, size_t sizeFolded, const char *mixed,
 			folded[i] = mapping[static_cast<unsigned char>(mixed[i])];
 		}
 		return lenMixed;
+	}
+}
+
+void CaseFolderTable::SetTranslation(char ch, char chTranslation) {
+	mapping[static_cast<unsigned char>(ch)] = chTranslation;
+}
+
+void CaseFolderTable::StandardASCII() {
+	for (size_t iChar=0; iChar<sizeof(mapping); iChar++) {
+		if (iChar >= 'A' && iChar <= 'Z') {
+			mapping[iChar] = static_cast<char>(iChar - 'A' + 'a');
+		} else {
+			mapping[iChar] = static_cast<char>(iChar);
+		}
 	}
 }
 
@@ -1186,7 +1167,6 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 			endSearch = endPos - lengthFind + 1;
 		}
 		//Platform::DebugPrintf("Find %d %d %s %d\n", startPos, endPos, ft->lpstrText, lengthFind);
-		ElapsedTime et;
 		int pos = forward ? startPos : (startPos - 1);
 		char firstChar = s[0];
 		if (caseSensitive) {
@@ -1204,7 +1184,6 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 						if ((!word && !wordStart) ||
 						        (word && IsWordAt(pos, pos + lengthFind)) ||
 						        (wordStart && IsWordStartAt(pos)))
-							Platform::DebugPrintf("Found exact: %9.6g \n", et.Duration());
 							return pos;
 					}
 				}
@@ -1230,7 +1209,6 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 					char bytes[maxBytesCharacter + 1];
 					widthChar = ExtractChar(pos + matchOff, bytes);
 					bytes[maxBytesCharacter] = 0;
-					//Platform::DebugPrintf("  Find:  width=%d   '%s'\n", widthChar, bytes);
 					if (!widthFirst)
 						widthFirst = widthChar;
 					char folded[maxBytesCharacter * maxFoldingExpansion + 1];
@@ -1248,7 +1226,6 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 					        (word && IsWordAt(pos, pos + lengthFind)) ||
 							(wordStart && IsWordStartAt(pos))) {
 						*length = matchOff;
-						Platform::DebugPrintf("%d Found:  len= %d    time = %9.6g \n", dbcsCodePage, matchOff, et.Duration());
 						return pos;
 					}
 				}
@@ -1283,7 +1260,6 @@ long Document::FindText(int minPos, int maxPos, const char *s,
 						if ((!word && !wordStart) ||
 						        (word && IsWordAt(pos, pos + lengthFind)) ||
 								(wordStart && IsWordStartAt(pos))) {
-							Platform::DebugPrintf("Found8: %9.6g \n", et.Duration());
 							return pos;
 						}
 					}
