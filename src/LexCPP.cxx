@@ -11,6 +11,9 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+#include <string>
+#include <map>
+
 #include "Platform.h"
 
 #include "PropSet.h"
@@ -50,6 +53,18 @@ static bool FollowsPostfixOperator(StyleContext &sc, Accessor &styler) {
 	return false;
 }
 
+static std::string GetRestOfLine(StyleContext sc, int i) {
+	std::string restOfLine;
+	char ch = sc.GetRelative(i);
+	while (ch != '\r' && ch != '\n') {
+		if (ch != ' ')
+			restOfLine += ch;
+		i++;
+		ch = sc.GetRelative(i);
+	}
+	return restOfLine;
+}
+
 static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, WordList *keywordlists[],
                             Accessor &styler, bool caseSensitive) {
 
@@ -57,6 +72,23 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 	WordList &keywords2 = *keywordlists[1];
 	WordList &keywords3 = *keywordlists[2];
 	WordList &keywords4 = *keywordlists[3];
+	WordList &ppDefinitions = *keywordlists[4];
+
+	std::map<std::string, std::string> preprocessorDefinitions;
+	for (int nDefinition = 0; nDefinition < ppDefinitions.len; nDefinition++) {
+		char *cpDefinition = ppDefinitions.words[nDefinition];
+		char *cpEquals = strchr(cpDefinition, '=');
+		if (cpEquals) {
+			std::string name(cpDefinition, cpEquals - cpDefinition);
+			std::string val(cpEquals+1);
+			preprocessorDefinitions[name] = val;
+		} else {
+			std::string name(cpDefinition);
+			std::string val("1");
+			preprocessorDefinitions[name] = val;
+		}
+	}
+
 
 	// property styling.within.preprocessor
 	//	For C++ code, determines whether all preprocessor code is styled in the preprocessor style (0, the default)
@@ -78,6 +110,10 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 		setWord.Add('$');
 	}
 
+	// property lexer.cpp.track.preprocessor
+	//	Set to 1 to interpret #if/#else/#endif to grey out code that is not active.
+	const bool trackPreprocessor = styler.GetPropertyInt("lexer.cpp.track.preprocessor", 1) != 0;
+
 	int chPrevNonWhite = ' ';
 	int visibleChars = 0;
 	bool lastWordWasUUID = false;
@@ -85,9 +121,9 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 	bool continuationLine = false;
 	bool isIncludePreprocessor = false;
 
+	int lineCurrent = styler.GetLine(startPos);
 	if (initStyle == SCE_C_PREPROCESSOR) {
 		// Set continuationLine if last character of previous line is '\'
-		int lineCurrent = styler.GetLine(startPos);
 		if (lineCurrent > 0) {
 			int chBack = styler.SafeGetCharAt(startPos-1, 0);
 			int chBack2 = styler.SafeGetCharAt(startPos-2, 0);
@@ -111,7 +147,18 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 		}
 	}
 
-	StyleContext sc(startPos, length, initStyle, styler);
+	StyleContext sc(startPos, length, initStyle, styler, 0x7f);
+	int preprocLevel = 0;
+	int preprocState = 0;
+	if (lineCurrent > 0) {
+		preprocLevel = styler.GetLineState(lineCurrent) & 0xf;
+		preprocState = (styler.GetLineState(lineCurrent) >> 4) & 0xff;
+	}
+
+	const int maskActivity = 0x3F;
+
+	// TODO: grab from line state
+	int activitySet = preprocState ? 0x40 : 0;
 
 	for (; sc.More(); sc.Forward()) {
 
@@ -126,6 +173,23 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 			visibleChars = 0;
 			lastWordWasUUID = false;
 			isIncludePreprocessor = false;
+			if (preprocState != 0) {
+				activitySet = 0x40;
+				sc.SetState(sc.state | activitySet);
+			}
+			if (activitySet) {
+				if (sc.ch == '#') {
+					if (sc.Match("#else") || sc.Match("#end") || sc.Match("#if")) {
+						activitySet = 0;
+					}
+				}
+			}
+		}
+
+		if (sc.atLineEnd) {
+			lineCurrent++;
+			int val = (preprocLevel & 0xf) | ((preprocState &0xfff) << 4);
+			styler.SetLineState(lineCurrent, val);
 		}
 
 		// Handle line continuation generically.
@@ -141,14 +205,14 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 		}
 
 		// Determine if the current state should terminate.
-		switch (sc.state) {
+		switch (sc.state & maskActivity) {
 			case SCE_C_OPERATOR:
-				sc.SetState(SCE_C_DEFAULT);
+				sc.SetState(SCE_C_DEFAULT|activitySet);
 				break;
 			case SCE_C_NUMBER:
 				// We accept almost anything because of hex. and number suffixes
 				if (!setWord.Contains(sc.ch)) {
-					sc.SetState(SCE_C_DEFAULT);
+					sc.SetState(SCE_C_DEFAULT|activitySet);
 				}
 				break;
 			case SCE_C_IDENTIFIER:
@@ -161,59 +225,59 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 					}
 					if (keywords.InList(s)) {
 						lastWordWasUUID = strcmp(s, "uuid") == 0;
-						sc.ChangeState(SCE_C_WORD);
+						sc.ChangeState(SCE_C_WORD|activitySet);
 					} else if (keywords2.InList(s)) {
-						sc.ChangeState(SCE_C_WORD2);
+						sc.ChangeState(SCE_C_WORD2|activitySet);
 					} else if (keywords4.InList(s)) {
-						sc.ChangeState(SCE_C_GLOBALCLASS);
+						sc.ChangeState(SCE_C_GLOBALCLASS|activitySet);
 					}
-					sc.SetState(SCE_C_DEFAULT);
+					sc.SetState(SCE_C_DEFAULT|activitySet);
 				}
 				break;
 			case SCE_C_PREPROCESSOR:
 				if (sc.atLineStart && !continuationLine) {
-					sc.SetState(SCE_C_DEFAULT);
+					sc.SetState(SCE_C_DEFAULT|activitySet);
 				} else if (stylingWithinPreprocessor) {
 					if (IsASpace(sc.ch)) {
-						sc.SetState(SCE_C_DEFAULT);
+						sc.SetState(SCE_C_DEFAULT|activitySet);
 					}
 				} else {
 					if (sc.Match('/', '*') || sc.Match('/', '/')) {
-						sc.SetState(SCE_C_DEFAULT);
+						sc.SetState(SCE_C_DEFAULT|activitySet);
 					}
 				}
 				break;
 			case SCE_C_COMMENT:
 				if (sc.Match('*', '/')) {
 					sc.Forward();
-					sc.ForwardSetState(SCE_C_DEFAULT);
+					sc.ForwardSetState(SCE_C_DEFAULT|activitySet);
 				}
 				break;
 			case SCE_C_COMMENTDOC:
 				if (sc.Match('*', '/')) {
 					sc.Forward();
-					sc.ForwardSetState(SCE_C_DEFAULT);
+					sc.ForwardSetState(SCE_C_DEFAULT|activitySet);
 				} else if (sc.ch == '@' || sc.ch == '\\') { // JavaDoc and Doxygen support
 					// Verify that we have the conditions to mark a comment-doc-keyword
 					if ((IsASpace(sc.chPrev) || sc.chPrev == '*') && (!IsASpace(sc.chNext))) {
 						styleBeforeDCKeyword = SCE_C_COMMENTDOC;
-						sc.SetState(SCE_C_COMMENTDOCKEYWORD);
+						sc.SetState(SCE_C_COMMENTDOCKEYWORD|activitySet);
 					}
 				}
 				break;
 			case SCE_C_COMMENTLINE:
 				if (sc.atLineStart) {
-					sc.SetState(SCE_C_DEFAULT);
+					sc.SetState(SCE_C_DEFAULT|activitySet);
 				}
 				break;
 			case SCE_C_COMMENTLINEDOC:
 				if (sc.atLineStart) {
-					sc.SetState(SCE_C_DEFAULT);
+					sc.SetState(SCE_C_DEFAULT|activitySet);
 				} else if (sc.ch == '@' || sc.ch == '\\') { // JavaDoc and Doxygen support
 					// Verify that we have the conditions to mark a comment-doc-keyword
 					if ((IsASpace(sc.chPrev) || sc.chPrev == '/' || sc.chPrev == '!') && (!IsASpace(sc.chNext))) {
 						styleBeforeDCKeyword = SCE_C_COMMENTLINEDOC;
-						sc.SetState(SCE_C_COMMENTDOCKEYWORD);
+						sc.SetState(SCE_C_COMMENTDOCKEYWORD|activitySet);
 					}
 				}
 				break;
@@ -221,7 +285,7 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 				if ((styleBeforeDCKeyword == SCE_C_COMMENTDOC) && sc.Match('*', '/')) {
 					sc.ChangeState(SCE_C_COMMENTDOCKEYWORDERROR);
 					sc.Forward();
-					sc.ForwardSetState(SCE_C_DEFAULT);
+					sc.ForwardSetState(SCE_C_DEFAULT|activitySet);
 				} else if (!setDoxygen.Contains(sc.ch)) {
 					char s[100];
 					if (caseSensitive) {
@@ -230,17 +294,17 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 						sc.GetCurrentLowered(s, sizeof(s));
 					}
 					if (!IsASpace(sc.ch) || !keywords3.InList(s + 1)) {
-						sc.ChangeState(SCE_C_COMMENTDOCKEYWORDERROR);
+						sc.ChangeState(SCE_C_COMMENTDOCKEYWORDERROR|activitySet);
 					}
 					sc.SetState(styleBeforeDCKeyword);
 				}
 				break;
 			case SCE_C_STRING:
 				if (sc.atLineEnd) {
-					sc.ChangeState(SCE_C_STRINGEOL);
+					sc.ChangeState(SCE_C_STRINGEOL|activitySet);
 				} else if (isIncludePreprocessor) {
 					if (sc.ch == '>') {
-						sc.ForwardSetState(SCE_C_DEFAULT);
+						sc.ForwardSetState(SCE_C_DEFAULT|activitySet);
 						isIncludePreprocessor = false;
 					}
 				} else if (sc.ch == '\\') {
@@ -248,28 +312,28 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 						sc.Forward();
 					}
 				} else if (sc.ch == '\"') {
-					sc.ForwardSetState(SCE_C_DEFAULT);
+					sc.ForwardSetState(SCE_C_DEFAULT|activitySet);
 				}
 				break;
 			case SCE_C_CHARACTER:
 				if (sc.atLineEnd) {
-					sc.ChangeState(SCE_C_STRINGEOL);
+					sc.ChangeState(SCE_C_STRINGEOL|activitySet);
 				} else if (sc.ch == '\\') {
 					if (sc.chNext == '\"' || sc.chNext == '\'' || sc.chNext == '\\') {
 						sc.Forward();
 					}
 				} else if (sc.ch == '\'') {
-					sc.ForwardSetState(SCE_C_DEFAULT);
+					sc.ForwardSetState(SCE_C_DEFAULT|activitySet);
 				}
 				break;
 			case SCE_C_REGEX:
 				if (sc.atLineStart) {
-					sc.SetState(SCE_C_DEFAULT);
+					sc.SetState(SCE_C_DEFAULT|activitySet);
 				} else if (sc.ch == '/') {
 					sc.Forward();
 					while ((sc.ch < 0x80) && islower(sc.ch))
 						sc.Forward();    // gobble regex flags
-					sc.SetState(SCE_C_DEFAULT);
+					sc.SetState(SCE_C_DEFAULT|activitySet);
 				} else if (sc.ch == '\\') {
 					// Gobble up the quoted character
 					if (sc.chNext == '\\' || sc.chNext == '/') {
@@ -279,7 +343,7 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 				break;
 			case SCE_C_STRINGEOL:
 				if (sc.atLineStart) {
-					sc.SetState(SCE_C_DEFAULT);
+					sc.SetState(SCE_C_DEFAULT|activitySet);
 				}
 				break;
 			case SCE_C_VERBATIM:
@@ -287,72 +351,110 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 					if (sc.chNext == '\"') {
 						sc.Forward();
 					} else {
-						sc.ForwardSetState(SCE_C_DEFAULT);
+						sc.ForwardSetState(SCE_C_DEFAULT|activitySet);
 					}
 				}
 				break;
 			case SCE_C_UUID:
 				if (sc.ch == '\r' || sc.ch == '\n' || sc.ch == ')') {
-					sc.SetState(SCE_C_DEFAULT);
+					sc.SetState(SCE_C_DEFAULT|activitySet);
 				}
 		}
 
 		// Determine if a new state should be entered.
-		if (sc.state == SCE_C_DEFAULT) {
+		if ((sc.state & maskActivity) == SCE_C_DEFAULT) {
 			if (sc.Match('@', '\"')) {
-				sc.SetState(SCE_C_VERBATIM);
+				sc.SetState(SCE_C_VERBATIM|activitySet);
 				sc.Forward();
 			} else if (IsADigit(sc.ch) || (sc.ch == '.' && IsADigit(sc.chNext))) {
 				if (lastWordWasUUID) {
-					sc.SetState(SCE_C_UUID);
+					sc.SetState(SCE_C_UUID|activitySet);
 					lastWordWasUUID = false;
 				} else {
-					sc.SetState(SCE_C_NUMBER);
+					sc.SetState(SCE_C_NUMBER|activitySet);
 				}
 			} else if (setWordStart.Contains(sc.ch) || (sc.ch == '@')) {
 				if (lastWordWasUUID) {
-					sc.SetState(SCE_C_UUID);
+					sc.SetState(SCE_C_UUID|activitySet);
 					lastWordWasUUID = false;
 				} else {
-					sc.SetState(SCE_C_IDENTIFIER);
+					sc.SetState(SCE_C_IDENTIFIER|activitySet);
 				}
 			} else if (sc.Match('/', '*')) {
 				if (sc.Match("/**") || sc.Match("/*!")) {	// Support of Qt/Doxygen doc. style
-					sc.SetState(SCE_C_COMMENTDOC);
+					sc.SetState(SCE_C_COMMENTDOC|activitySet);
 				} else {
-					sc.SetState(SCE_C_COMMENT);
+					sc.SetState(SCE_C_COMMENT|activitySet);
 				}
 				sc.Forward();	// Eat the * so it isn't used for the end of the comment
 			} else if (sc.Match('/', '/')) {
 				if ((sc.Match("///") && !sc.Match("////")) || sc.Match("//!"))
 					// Support of Qt/Doxygen doc. style
-					sc.SetState(SCE_C_COMMENTLINEDOC);
+					sc.SetState(SCE_C_COMMENTLINEDOC|activitySet);
 				else
-					sc.SetState(SCE_C_COMMENTLINE);
+					sc.SetState(SCE_C_COMMENTLINE|activitySet);
 			} else if (sc.ch == '/' && setOKBeforeRE.Contains(chPrevNonWhite) &&
 				(!setCouldBePostOp.Contains(chPrevNonWhite) || !FollowsPostfixOperator(sc, styler))) {
-				sc.SetState(SCE_C_REGEX);	// JavaScript's RegEx
+				sc.SetState(SCE_C_REGEX|activitySet);	// JavaScript's RegEx
 			} else if (sc.ch == '\"') {
-				sc.SetState(SCE_C_STRING);
+				sc.SetState(SCE_C_STRING|activitySet);
 				isIncludePreprocessor = false;	// ensure that '>' won't end the string
 			} else if (isIncludePreprocessor && sc.ch == '<') {
-				sc.SetState(SCE_C_STRING);
+				sc.SetState(SCE_C_STRING|activitySet);
 			} else if (sc.ch == '\'') {
-				sc.SetState(SCE_C_CHARACTER);
+				sc.SetState(SCE_C_CHARACTER|activitySet);
 			} else if (sc.ch == '#' && visibleChars == 0) {
 				// Preprocessor commands are alone on their line
-				sc.SetState(SCE_C_PREPROCESSOR);
+				sc.SetState(SCE_C_PREPROCESSOR|activitySet);
 				// Skip whitespace between # and preprocessor word
 				do {
 					sc.Forward();
 				} while ((sc.ch == ' ' || sc.ch == '\t') && sc.More());
 				if (sc.atLineEnd) {
-					sc.SetState(SCE_C_DEFAULT);
+					sc.SetState(SCE_C_DEFAULT|activitySet);
 				} else if (sc.Match("include")) {
 					isIncludePreprocessor = true;
+				} else {
+					if (trackPreprocessor) {
+						// do clever stuff
+						if (sc.Match("ifdef") || sc.Match("ifndef")) {
+							// grab rest of line
+							bool isIfDef = sc.Match("ifdef");
+							int i = isIfDef ? 5 : 6;
+							std::string restOfLine = GetRestOfLine(sc, i);
+							bool foundDef = preprocessorDefinitions.find(restOfLine) != preprocessorDefinitions.end();
+							if (isIfDef == foundDef) {
+								preprocState &= ~(1 << preprocLevel);
+							} else {
+								preprocState |= 1 << preprocLevel;
+							}
+							preprocLevel++;
+						} else if (sc.Match("if")) {
+							std::string restOfLine = GetRestOfLine(sc, 2);
+							bool ifGood = false;
+							if (preprocessorDefinitions.find(restOfLine) != preprocessorDefinitions.end()) {
+								std::string val = preprocessorDefinitions[restOfLine];
+								if (atoi(val.c_str()))
+									ifGood = true;
+							}
+							if (ifGood) {
+								preprocState &= ~(1 << preprocLevel);
+							} else {
+								preprocState |= 1 << preprocLevel;
+							}
+							preprocLevel++;
+						} else if (sc.Match("else")) {
+							preprocState ^= 1 << (preprocLevel - 1);
+							//sc.SetState(SCE_C_DEFAULT);
+						} else if (sc.Match("endif")) {
+							preprocLevel--;
+							preprocState &= ~(1 << preprocLevel);
+							//sc.SetState(SCE_C_DEFAULT);
+						}
+					}
 				}
 			} else if (isoperator(static_cast<char>(sc.ch))) {
-				sc.SetState(SCE_C_OPERATOR);
+				sc.SetState(SCE_C_OPERATOR|activitySet);
 			}
 		}
 
@@ -487,8 +589,8 @@ static const char *const cppWordLists[] = {
             "Primary keywords and identifiers",
             "Secondary keywords and identifiers",
             "Documentation comment keywords",
-            "Unused",
             "Global classes and typedefs",
+            "Preprocessor definitions",
             0,
 };
 
@@ -502,5 +604,5 @@ static void ColouriseCppDocInsensitive(unsigned int startPos, int length, int in
 	ColouriseCppDoc(startPos, length, initStyle, keywordlists, styler, false);
 }
 
-LexerModule lmCPP(SCLEX_CPP, ColouriseCppDocSensitive, "cpp", FoldCppDoc, cppWordLists);
-LexerModule lmCPPNoCase(SCLEX_CPPNOCASE, ColouriseCppDocInsensitive, "cppnocase", FoldCppDoc, cppWordLists);
+LexerModule lmCPP(SCLEX_CPP, ColouriseCppDocSensitive, "cpp", FoldCppDoc, cppWordLists, 7);
+LexerModule lmCPPNoCase(SCLEX_CPPNOCASE, ColouriseCppDocInsensitive, "cppnocase", FoldCppDoc, cppWordLists, 7);
