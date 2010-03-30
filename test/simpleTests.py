@@ -329,6 +329,10 @@ class TestSimple(unittest.TestCase):
 		searchString = b"\([1-9]+\)"
 		pos = self.ed.SearchInTarget(len(searchString), searchString)
 		self.assertEquals(1, pos)
+		tagString = b"abcdefghijklmnop"
+		lenTag = self.ed.GetTag(1, tagString)
+		tagString = tagString[:lenTag]
+		self.assertEquals(tagString, b"321")
 		rep = b"\\1"
 		self.ed.TargetStart = 0
 		self.ed.TargetEnd = 0
@@ -1128,7 +1132,7 @@ class TestCaseInsensitiveSearch(unittest.TestCase):
 		self.ed.TargetEnd = self.ed.Length-1
 		self.ed.SearchFlags = 0
 		pos = self.ed.SearchInTarget(len(searchString), searchString)
-		self.assertEquals(-1, pos)
+		self.assertEquals(0, pos)
 
 	def testASCII(self):
 		text = b" x X"
