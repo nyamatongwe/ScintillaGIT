@@ -2078,7 +2078,7 @@ void ScintillaWin::GetIntelliMouseParameters() {
 
 void ScintillaWin::CopyToClipboard(const SelectionText &selectedText) {
 	if (!::OpenClipboard(MainHWND()))
-		return ;
+		return;
 	::EmptyClipboard();
 
 	GlobalMemory uniText;
