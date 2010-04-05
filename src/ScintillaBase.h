@@ -43,18 +43,6 @@ protected:
 	int listType;			///< 0 is an autocomplete list
 	int maxListWidth;		/// Maximum width of list, in average character widths
 
-#ifdef SCI_LEXER
-	bool performingStyle;	///< Prevent reentrance
-	int lexLanguage;
-	const LexerModule *lexCurrent;
-	PropSetSimple props;
-	enum {numWordLists=KEYWORDSET_MAX+1};
-	WordList *keyWordLists[numWordLists+1];
-	void SetLexer(uptr_t wParam);
-	void SetLexerLanguage(const char *languageName);
-	void Colourise(int start, int end);
-#endif
-
 	ScintillaBase();
 	virtual ~ScintillaBase();
 	virtual void Initialise() = 0;

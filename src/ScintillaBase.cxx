@@ -18,12 +18,6 @@
 #include "Scintilla.h"
 #include "PropSet.h"
 #include "PropSetSimple.h"
-#ifdef SCI_LEXER
-#include "SciLexer.h"
-#include "Accessor.h"
-#include "DocumentAccessor.h"
-#include "KeyWords.h"
-#endif
 #include "SplitVector.h"
 #include "Partitioning.h"
 #include "RunStyles.h"
@@ -53,21 +47,9 @@ ScintillaBase::ScintillaBase() {
 	displayPopupMenu = true;
 	listType = 0;
 	maxListWidth = 0;
-#ifdef SCI_LEXER
-	lexLanguage = SCLEX_CONTAINER;
-	performingStyle = false;
-	lexCurrent = 0;
-	for (int wl = 0; wl < numWordLists; wl++)
-		keyWordLists[wl] = new WordList;
-	keyWordLists[numWordLists] = 0;
-#endif
 }
 
 ScintillaBase::~ScintillaBase() {
-#ifdef SCI_LEXER
-	for (int wl = 0; wl < numWordLists; wl++)
-		delete keyWordLists[wl];
-#endif
 }
 
 void ScintillaBase::Finalise() {
@@ -476,75 +458,10 @@ void ScintillaBase::ButtonDown(Point pt, unsigned int curTime, bool shift, bool 
 	Editor::ButtonDown(pt, curTime, shift, ctrl, alt);
 }
 
-#ifdef SCI_LEXER
-void ScintillaBase::SetLexer(uptr_t wParam) {
-	lexLanguage = wParam;
-	lexCurrent = LexerModule::Find(lexLanguage);
-	if (!lexCurrent)
-		lexCurrent = LexerModule::Find(SCLEX_NULL);
-	int bits = lexCurrent ? lexCurrent->GetStyleBitsNeeded() : 5;
-	vs.EnsureStyle((1 << bits) - 1);
-}
-
-void ScintillaBase::SetLexerLanguage(const char *languageName) {
-	lexLanguage = SCLEX_CONTAINER;
-	lexCurrent = LexerModule::Find(languageName);
-	if (!lexCurrent)
-		lexCurrent = LexerModule::Find(SCLEX_NULL);
-	if (lexCurrent)
-		lexLanguage = lexCurrent->GetLanguage();
-	int bits = lexCurrent ? lexCurrent->GetStyleBitsNeeded() : 5;
-	vs.EnsureStyle((1 << bits) - 1);
-}
-
-void ScintillaBase::Colourise(int start, int end) {
-	if (!performingStyle) {
-		// Protect against reentrance, which may occur, for example, when
-		// fold points are discovered while performing styling and the folding
-		// code looks for child lines which may trigger styling.
-		performingStyle = true;
-
-		int lengthDoc = pdoc->Length();
-		if (end == -1)
-			end = lengthDoc;
-		int len = end - start;
-
-		PLATFORM_ASSERT(len >= 0);
-		PLATFORM_ASSERT(start + len <= lengthDoc);
-
-		//WindowAccessor styler(wMain.GetID(), props);
-		DocumentAccessor styler(pdoc, props, wMain.GetID());
-
-		int styleStart = 0;
-		if (start > 0)
-			styleStart = styler.StyleAt(start - 1) & pdoc->stylingBitsMask;
-		styler.SetCodePage(pdoc->dbcsCodePage);
-
-		if (lexCurrent && (len > 0)) {	// Should always succeed as null lexer should always be available
-			lexCurrent->Lex(start, len, styleStart, keyWordLists, styler);
-			styler.Flush();
-			if (styler.GetPropertyInt("fold")) {
-				lexCurrent->Fold(start, len, styleStart, keyWordLists, styler);
-				styler.Flush();
-			}
-		}
-
-		performingStyle = false;
-	}
-}
-#endif
-
 void ScintillaBase::NotifyStyleToNeeded(int endStyleNeeded) {
-#ifdef SCI_LEXER
-	if (lexLanguage != SCLEX_CONTAINER) {
-		int endStyled = WndProc(SCI_GETENDSTYLED, 0, 0);
-		int lineEndStyled = WndProc(SCI_LINEFROMPOSITION, endStyled, 0);
-		endStyled = WndProc(SCI_POSITIONFROMLINE, lineEndStyled, 0);
-		Colourise(endStyled, endStyleNeeded);
-		return;
+	if (!pdoc->StyleTo(wMain.GetID(), endStyleNeeded)) {
+		Editor::NotifyStyleToNeeded(endStyleNeeded);
 	}
-#endif
-	Editor::NotifyStyleToNeeded(endStyleNeeded);
 }
 
 sptr_t ScintillaBase::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lParam) {
@@ -708,62 +625,20 @@ sptr_t ScintillaBase::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lPara
 		break;
 
 #ifdef SCI_LEXER
+
 	case SCI_SETLEXER:
-		SetLexer(wParam);
-		lexLanguage = wParam;
-		break;
-
 	case SCI_GETLEXER:
-		return lexLanguage;
-
 	case SCI_COLOURISE:
-		if (lexLanguage == SCLEX_CONTAINER) {
-			pdoc->ModifiedAt(wParam);
-			NotifyStyleToNeeded((lParam == -1) ? pdoc->Length() : lParam);
-		} else {
-			Colourise(wParam, lParam);
-		}
-		Redraw();
-		break;
-
 	case SCI_SETPROPERTY:
-		props.Set(reinterpret_cast<const char *>(wParam),
-		          reinterpret_cast<const char *>(lParam));
-		break;
-
 	case SCI_GETPROPERTY:
-			return StringResult(lParam, props.Get(reinterpret_cast<const char *>(wParam)));
-
-	case SCI_GETPROPERTYEXPANDED: {
-			char *val = props.Expanded(reinterpret_cast<const char *>(wParam));
-			const int n = strlen(val);
-			if (lParam != 0) {
-				char *ptr = reinterpret_cast<char *>(lParam);
-				strcpy(ptr, val);
-			}
-			delete []val;
-			return n;	// Not including NUL
-		}
-
+	case SCI_GETPROPERTYEXPANDED:
 	case SCI_GETPROPERTYINT:
-		return props.GetInt(reinterpret_cast<const char *>(wParam), lParam);
-
 	case SCI_SETKEYWORDS:
-		if (wParam < numWordLists) {
-			keyWordLists[wParam]->Clear();
-			keyWordLists[wParam]->Set(reinterpret_cast<const char *>(lParam));
-		}
-		break;
-
 	case SCI_SETLEXERLANGUAGE:
-		SetLexerLanguage(reinterpret_cast<const char *>(lParam));
-		break;
-
 	case SCI_GETLEXERLANGUAGE:
-		return StringResult(lParam, lexCurrent ? lexCurrent->languageName : "");
-
 	case SCI_GETSTYLEBITSNEEDED:
-		return lexCurrent ? lexCurrent->GetStyleBitsNeeded() : 5;
+
+		return pdoc->WndProc(wMain.GetID(), iMessage, wParam, lParam);
 
 #endif
 

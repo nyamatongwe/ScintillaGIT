@@ -17,6 +17,8 @@
 
 #include "Scintilla.h"
 
+#include "PropSet.h"
+#include "PropSetSimple.h"
 #include "SplitVector.h"
 #include "Partitioning.h"
 #include "RunStyles.h"

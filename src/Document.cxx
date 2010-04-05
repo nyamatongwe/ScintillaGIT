@@ -24,6 +24,15 @@
 #include "Platform.h"
 
 #include "Scintilla.h"
+#include "PropSet.h"
+#include "PropSetSimple.h"
+#ifdef SCI_LEXER
+#include "SciLexer.h"
+#include "Accessor.h"
+#include "DocumentAccessor.h"
+#include "KeyWords.h"
+#include "ExternalLexer.h"
+#endif
 #include "SplitVector.h"
 #include "Partitioning.h"
 #include "RunStyles.h"
@@ -40,9 +49,11 @@ using namespace Scintilla;
 #endif
 
 // This is ASCII specific but is safe with chars >= 0x80
+#ifdef DEAD_CODE
 static inline bool isspacechar(unsigned char ch) {
 	return (ch == ' ') || ((ch >= 0x09) && (ch <= 0x0d));
 }
+#endif
 
 static inline bool IsPunctuation(char ch) {
 	return isascii(ch) && ispunct(ch);
@@ -95,6 +106,15 @@ Document::Document() {
 	perLineData[ldAnnotation] = new LineAnnotation();
 
 	cb.SetPerLine(this);
+
+#ifdef SCI_LEXER
+	lexLanguage = SCLEX_CONTAINER;
+	performingStyle = false;
+	lexCurrent = 0;
+	for (int wl = 0; wl < numWordLists; wl++)
+		keyWordLists[wl] = new WordList;
+	keyWordLists[numWordLists] = 0;
+#endif
 }
 
 Document::~Document() {
@@ -110,6 +130,10 @@ Document::~Document() {
 	lenWatchers = 0;
 	delete regex;
 	regex = 0;
+#ifdef SCI_LEXER
+	for (int wl = 0; wl < numWordLists; wl++)
+		delete keyWordLists[wl];
+#endif
 }
 
 void Document::Init() {
@@ -857,7 +881,7 @@ char *Document::TransformLineEnds(int *pLenOut, const char *s, size_t len, int e
 	char *dest = new char[2 * len + 1];
 	const char *sptr = s;
 	char *dptr = dest;
-	for (size_t i = 0; i < len; i++) {
+	for (size_t i = 0; (i < len) && (*sptr != '\0'); i++) {
 		if (*sptr == '\n' || *sptr == '\r') {
 			if (eolMode == SC_EOL_CR) {
 				*dptr++ = '\r';
@@ -1358,6 +1382,13 @@ void Document::EnsureStyledTo(int pos) {
 	}
 }
 
+void Document::LexerChanged() {
+	// Tell the watchers the lexer has changed.
+	for (int i = 0; i < lenWatchers; i++) {
+		watchers[i].watcher->NotifyLexerChanged(this, watchers[i].userData);
+	}
+}
+
 int Document::SetLineState(int line, int state) {
 	int statePrevious = static_cast<LineState *>(perLineData[ldState])->SetLineState(line, state);
 	if (state != statePrevious) {
@@ -1686,6 +1717,150 @@ int Document::BraceMatch(int position, int /*maxReStyle*/) {
 		position = position + direction;
 	}
 	return - 1;
+}
+
+#ifdef SCI_LEXER
+void Document::SetLexer(uptr_t wParam) {
+	lexLanguage = wParam;
+	lexCurrent = LexerModule::Find(lexLanguage);
+	if (!lexCurrent)
+		lexCurrent = LexerModule::Find(SCLEX_NULL);
+	LexerChanged();
+}
+
+void Document::SetLexerLanguage(const char *languageName) {
+	lexLanguage = SCLEX_CONTAINER;
+	lexCurrent = LexerModule::Find(languageName);
+	if (!lexCurrent)
+		lexCurrent = LexerModule::Find(SCLEX_NULL);
+	if (lexCurrent)
+		lexLanguage = lexCurrent->GetLanguage();
+	LexerChanged();
+}
+
+void Document::Colourise(WindowID wid, int start, int end) {
+	if (lexLanguage == SCLEX_CONTAINER) {
+		ModifiedAt(start);
+		EnsureStyledTo(end);
+		return;
+	}
+
+	if (!performingStyle) {
+		// Protect against reentrance, which may occur, for example, when
+		// fold points are discovered while performing styling and the folding
+		// code looks for child lines which may trigger styling.
+		performingStyle = true;
+
+		int lengthDoc = Length();
+		if (end == -1)
+			end = lengthDoc;
+		int len = end - start;
+
+		PLATFORM_ASSERT(len >= 0);
+		PLATFORM_ASSERT(start + len <= lengthDoc);
+
+		//WindowAccessor styler(wMain.GetID(), props);
+		DocumentAccessor styler(this, props, wid);
+
+		int styleStart = 0;
+		if (start > 0)
+			styleStart = styler.StyleAt(start - 1) & stylingBitsMask;
+		styler.SetCodePage(dbcsCodePage);
+
+		if (lexCurrent && (len > 0)) {	// Should always succeed as null lexer should always be available
+			lexCurrent->Lex(start, len, styleStart, keyWordLists, styler);
+			styler.Flush();
+			if (styler.GetPropertyInt("fold")) {
+				lexCurrent->Fold(start, len, styleStart, keyWordLists, styler);
+				styler.Flush();
+			}
+		}
+
+		performingStyle = false;
+	}
+}
+
+#endif
+
+bool Document::StyleTo(WindowID wid, int endStyleNeeded) {
+#ifdef SCI_LEXER
+	if (lexLanguage != SCLEX_CONTAINER) {
+		int endStyled = WndProc(wid, SCI_GETENDSTYLED, 0, 0);
+		int lineEndStyled = WndProc(wid, SCI_LINEFROMPOSITION, endStyled, 0);
+		endStyled = WndProc(wid, SCI_POSITIONFROMLINE, lineEndStyled, 0);
+		Colourise(wid, endStyled, endStyleNeeded);
+		return true;
+	}
+#endif
+	return false;
+}
+
+static sptr_t StringResult(sptr_t lParam, const char *val) {
+	const int n = strlen(val);
+	if (lParam != 0) {
+		char *ptr = reinterpret_cast<char *>(lParam);
+		strcpy(ptr, val);
+	}
+	return n;	// Not including NUL
+}
+
+sptr_t Document::WndProc(WindowID wid, unsigned int iMessage, uptr_t wParam, sptr_t lParam) {
+	switch (iMessage) {
+#ifdef SCI_LEXER
+	case SCI_SETLEXER:
+		SetLexer(wParam);
+		lexLanguage = wParam;
+		break;
+
+	case SCI_GETLEXER:
+		return lexLanguage;
+
+	case SCI_COLOURISE:
+		Colourise(wid, wParam, (lParam == -1) ? Length() : lParam);
+		break;
+
+	case SCI_SETPROPERTY:
+		props.Set(reinterpret_cast<const char *>(wParam),
+		          reinterpret_cast<const char *>(lParam));
+		break;
+
+	case SCI_GETPROPERTY:
+			return StringResult(lParam, props.Get(reinterpret_cast<const char *>(wParam)));
+
+	case SCI_GETPROPERTYEXPANDED: {
+			char *val = props.Expanded(reinterpret_cast<const char *>(wParam));
+			const int n = strlen(val);
+			if (lParam != 0) {
+				char *ptr = reinterpret_cast<char *>(lParam);
+				strcpy(ptr, val);
+			}
+			delete []val;
+			return n;	// Not including NUL
+		}
+
+	case SCI_GETPROPERTYINT:
+		return props.GetInt(reinterpret_cast<const char *>(wParam), lParam);
+
+	case SCI_SETKEYWORDS:
+		if (wParam < numWordLists) {
+			keyWordLists[wParam]->Clear();
+			keyWordLists[wParam]->Set(reinterpret_cast<const char *>(lParam));
+		}
+		break;
+
+	case SCI_SETLEXERLANGUAGE:
+		SetLexerLanguage(reinterpret_cast<const char *>(lParam));
+		break;
+
+	case SCI_GETLEXERLANGUAGE:
+		return StringResult(lParam, lexCurrent ? lexCurrent->languageName : "");
+
+	case SCI_GETSTYLEBITSNEEDED:
+		return lexCurrent ? lexCurrent->GetStyleBitsNeeded() : 5;
+
+#endif
+	}
+	return 0l;
 }
 
 /**

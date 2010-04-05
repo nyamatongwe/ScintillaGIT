@@ -133,6 +133,11 @@ public:
 	void StandardASCII();
 };
 
+#ifdef SCI_LEXER
+class LexerModule;
+class WordList;
+#endif
+
 /**
  */
 class Document : PerLine {
@@ -289,6 +294,7 @@ public:
 	bool SetStyles(int length, const char *styles);
 	int GetEndStyled() { return endStyled; }
 	void EnsureStyledTo(int pos);
+	void LexerChanged();
 	int GetStyleClock() { return styleClock; }
 	void IncrementStyleClock();
 	void DecorationFillRange(int position, int value, int fillLength);
@@ -328,7 +334,23 @@ public:
 	int IndentSize() { return actualIndentInChars; }
 	int BraceMatch(int position, int maxReStyle);
 
+	bool StyleTo(WindowID wid, int endStyleNeeded);
+	sptr_t WndProc(WindowID wid, unsigned int iMessage, uptr_t wParam, sptr_t lParam);
+
 private:
+
+#ifdef SCI_LEXER
+	bool performingStyle;	///< Prevent reentrance
+	int lexLanguage;
+	const LexerModule *lexCurrent;
+	PropSetSimple props;
+	enum {numWordLists=KEYWORDSET_MAX+1};
+	WordList *keyWordLists[numWordLists+1];
+	void SetLexer(uptr_t wParam);
+	void SetLexerLanguage(const char *languageName);
+	void Colourise(WindowID wid, int start, int end);
+#endif
+
 	CharClassify::cc WordCharClass(unsigned char ch);
 	bool IsWordStartAt(int pos);
 	bool IsWordEndAt(int pos);
@@ -417,6 +439,7 @@ public:
 	virtual void NotifyModified(Document *doc, DocModification mh, void *userData) = 0;
 	virtual void NotifyDeleted(Document *doc, void *userData) = 0;
 	virtual void NotifyStyleNeeded(Document *doc, void *userData, int endPos) = 0;
+	virtual void NotifyLexerChanged(Document *doc, void *userData) = 0;
 };
 
 #ifdef SCI_NAMESPACE

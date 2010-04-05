@@ -1659,19 +1659,23 @@ void ScintillaWin::ClaimSelection() {
 */
 
 void ScintillaWin::SetLexer(uptr_t wParam) {
+#ifdef IT_WORKED
 	lexLanguage = wParam;
 	lexCurrent = LexerModule::Find(lexLanguage);
 	if (!lexCurrent)
 		lexCurrent = LexerModule::Find(SCLEX_NULL);
+#endif
 }
 
 void ScintillaWin::SetLexerLanguage(const char *languageName) {
+#ifdef IT_WORKED
 	lexLanguage = SCLEX_CONTAINER;
 	lexCurrent = LexerModule::Find(languageName);
 	if (!lexCurrent)
 		lexCurrent = LexerModule::Find(SCLEX_NULL);
 	if (lexCurrent)
 		lexLanguage = lexCurrent->GetLanguage();
+#endif
 }
 
 #endif
