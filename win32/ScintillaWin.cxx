@@ -268,12 +268,6 @@ public:
 	/// Implement important part of IDataObject
 	STDMETHODIMP GetData(FORMATETC *pFEIn, STGMEDIUM *pSTM);
 
-	// External Lexers
-#ifdef SCI_LEXER
-	void SetLexerLanguage(const char *languageName);
-	void SetLexer(uptr_t wParam);
-#endif
-
 	static bool Register(HINSTANCE hInstance_);
 	static bool Unregister();
 
@@ -1646,39 +1640,6 @@ void ScintillaWin::AddToPopUp(const char *label, int cmd, bool enabled) {
 void ScintillaWin::ClaimSelection() {
 	// Windows does not have a primary selection
 }
-
-#ifdef SCI_LEXER
-
-/*
-
-  Initial Windows-Only implementation of the external lexer
-  system in ScintillaWin class. Intention is to create a LexerModule
-  subclass (?) to have lex and fold methods which will call out to their
-  relevant DLLs...
-
-*/
-
-void ScintillaWin::SetLexer(uptr_t wParam) {
-#ifdef IT_WORKED
-	lexLanguage = wParam;
-	lexCurrent = LexerModule::Find(lexLanguage);
-	if (!lexCurrent)
-		lexCurrent = LexerModule::Find(SCLEX_NULL);
-#endif
-}
-
-void ScintillaWin::SetLexerLanguage(const char *languageName) {
-#ifdef IT_WORKED
-	lexLanguage = SCLEX_CONTAINER;
-	lexCurrent = LexerModule::Find(languageName);
-	if (!lexCurrent)
-		lexCurrent = LexerModule::Find(SCLEX_NULL);
-	if (lexCurrent)
-		lexLanguage = lexCurrent->GetLanguage();
-#endif
-}
-
-#endif
 
 /// Implement IUnknown
 
