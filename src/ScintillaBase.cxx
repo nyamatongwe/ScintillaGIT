@@ -458,10 +458,169 @@ void ScintillaBase::ButtonDown(Point pt, unsigned int curTime, bool shift, bool 
 	Editor::ButtonDown(pt, curTime, shift, ctrl, alt);
 }
 
-void ScintillaBase::NotifyStyleToNeeded(int endStyleNeeded) {
-	if (!pdoc->StyleTo(wMain.GetID(), endStyleNeeded)) {
-		Editor::NotifyStyleToNeeded(endStyleNeeded);
+#ifdef SCI_LEXER
+
+#include "SciLexer.h"
+#include "Accessor.h"
+#include "DocumentAccessor.h"
+#include "KeyWords.h"
+
+class LexState : public LexInterface {
+	const LexerModule *lexCurrent;
+	LexerInstance *instance;
+	void SetLexerModule(const LexerModule *lex);
+public:
+	Document *pdoc;
+	bool performingStyle;	///< Prevent reentrance
+	int lexLanguage;
+	PropSetSimple props;
+	enum {numWordLists=KEYWORDSET_MAX+1};
+	WordList *keyWordLists[numWordLists+1];
+
+	LexState(Document *pdoc_);
+	virtual ~LexState();
+	void SetLexer(uptr_t wParam);
+	void SetLexerLanguage(const char *languageName);
+	void SetWordList(int n, const char *wl);
+	void SetFreeMemoryFunction(void *p);
+	void *GetFreeMemoryFunction();
+	void SetFreeMemoryArgument(sptr_t p);
+	sptr_t GetFreeMemoryArgument();
+	int GetStyleBitsNeeded() const;
+	const char *GetName() const;
+	void Colourise(WindowID wid, int start, int end);
+};
+
+LexState::LexState(Document *pdoc_) {
+	lexCurrent = 0;
+	instance = 0;
+	pdoc = pdoc_;
+	performingStyle = false;
+	lexLanguage = SCLEX_CONTAINER;
+	for (int wl = 0; wl < numWordLists; wl++)
+		keyWordLists[wl] = new WordList;
+	keyWordLists[numWordLists] = 0;
+}
+
+LexState::~LexState() {
+	for (int wl = 0; wl < numWordLists; wl++)
+		delete keyWordLists[wl];
+	if (instance) {
+		instance->Release();
+		instance = 0;
 	}
+}
+
+LexState *ScintillaBase::DocumentLexState() {
+	if (!pdoc->pli) {
+		pdoc->pli = new LexState(pdoc);
+	}
+	return static_cast<LexState *>(pdoc->pli);
+}
+
+void LexState::SetLexerModule(const LexerModule *lex) {
+	if (lex != lexCurrent) {
+		if (instance) {
+			instance->Release();
+			instance = 0;
+		}
+		lexCurrent = lex;
+		instance = lexCurrent->Create();
+		pdoc->LexerChanged();
+	}
+}
+
+void LexState::SetLexer(uptr_t wParam) {
+	lexLanguage = wParam;
+	const LexerModule *lex = LexerModule::Find(lexLanguage);
+	if (!lex)
+		lex = LexerModule::Find(SCLEX_NULL);
+	SetLexerModule(lex);
+}
+
+void LexState::SetLexerLanguage(const char *languageName) {
+	const LexerModule *lex = LexerModule::Find(languageName);
+	if (!lex)
+		lex = LexerModule::Find(SCLEX_NULL);
+	if (lex)
+		lexLanguage = lex->GetLanguage();
+	SetLexerModule(lex);
+}
+
+void LexState::SetWordList(int n, const char *wl) {
+	if (n < numWordLists) {
+		keyWordLists[n]->Clear();
+		keyWordLists[n]->Set(wl);
+	}
+}
+
+int LexState::GetStyleBitsNeeded() const {
+	return lexCurrent ? lexCurrent->GetStyleBitsNeeded() : 5;
+}
+
+const char *LexState::GetName() const {
+	return lexCurrent ? lexCurrent->languageName : "";
+}
+
+void LexState::Colourise(WindowID wid, int start, int end) {
+	ElapsedTime et;
+	if (!performingStyle) {
+		// Protect against reentrance, which may occur, for example, when
+		// fold points are discovered while performing styling and the folding
+		// code looks for child lines which may trigger styling.
+		performingStyle = true;
+
+		int lengthDoc = pdoc->Length();
+		if (end == -1)
+			end = lengthDoc;
+		int len = end - start;
+
+		PLATFORM_ASSERT(len >= 0);
+		PLATFORM_ASSERT(start + len <= lengthDoc);
+
+		//WindowAccessor styler(wMain.GetID(), props);
+		DocumentAccessor styler(pdoc, props, wid);
+
+		int styleStart = 0;
+		if (start > 0)
+			styleStart = styler.StyleAt(start - 1) & pdoc->stylingBitsMask;
+		styler.SetCodePage(pdoc->dbcsCodePage);
+
+		if (len > 0) {
+			if (instance) {
+				instance->Lex(start, len, styleStart, keyWordLists, styler);
+				styler.Flush();
+				if (styler.GetPropertyInt("fold")) {
+					instance->Fold(start, len, styleStart, keyWordLists, styler);
+					styler.Flush();
+				}
+			}
+		}
+
+		performingStyle = false;
+	}
+	Platform::DebugPrintf("Style:%d %9.6g \n", performingStyle, et.Duration());
+}
+#endif
+
+void ScintillaBase::NotifyStyleToNeeded(int endStyleNeeded) {
+#ifdef SCI_LEXER
+	if (DocumentLexState()->lexLanguage != SCLEX_CONTAINER) {
+		int endStyled = WndProc(SCI_GETENDSTYLED, 0, 0);
+		int lineEndStyled = WndProc(SCI_LINEFROMPOSITION, endStyled, 0);
+		endStyled = WndProc(SCI_POSITIONFROMLINE, lineEndStyled, 0);
+		DocumentLexState()->Colourise(wMain.GetID(), endStyled, endStyleNeeded);
+		return;
+	}
+#endif
+	Editor::NotifyStyleToNeeded(endStyleNeeded);
+}
+
+void ScintillaBase::NotifyLexerChanged(Document *, void *) {
+#ifdef SCI_LEXER
+	int bits = DocumentLexState()->GetStyleBitsNeeded();
+	vs.EnsureStyle((1 << bits) - 1);
+#endif
 }
 
 sptr_t ScintillaBase::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lParam) {
@@ -625,20 +784,58 @@ sptr_t ScintillaBase::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lPara
 		break;
 
 #ifdef SCI_LEXER
-
 	case SCI_SETLEXER:
-	case SCI_GETLEXER:
-	case SCI_COLOURISE:
-	case SCI_SETPROPERTY:
-	case SCI_GETPROPERTY:
-	case SCI_GETPROPERTYEXPANDED:
-	case SCI_GETPROPERTYINT:
-	case SCI_SETKEYWORDS:
-	case SCI_SETLEXERLANGUAGE:
-	case SCI_GETLEXERLANGUAGE:
-	case SCI_GETSTYLEBITSNEEDED:
+		DocumentLexState()->SetLexer(wParam);
+		break;
 
-		return pdoc->WndProc(wMain.GetID(), iMessage, wParam, lParam);
+	case SCI_GETLEXER:
+		return DocumentLexState()->lexLanguage;
+
+	case SCI_COLOURISE:
+		if (DocumentLexState()->lexLanguage == SCLEX_CONTAINER) {
+			pdoc->ModifiedAt(wParam);
+			NotifyStyleToNeeded((lParam == -1) ? pdoc->Length() : lParam);
+		} else {
+			DocumentLexState()->Colourise(wMain.GetID(), wParam, lParam);
+		}
+		Redraw();
+		break;
+
+	case SCI_SETPROPERTY:
+		DocumentLexState()->props.Set(reinterpret_cast<const char *>(wParam),
+		          reinterpret_cast<const char *>(lParam));
+		break;
+
+	case SCI_GETPROPERTY:
+			return StringResult(lParam, DocumentLexState()->props.Get(reinterpret_cast<const char *>(wParam)));
+
+	case SCI_GETPROPERTYEXPANDED: {
+			char *val = DocumentLexState()->props.Expanded(reinterpret_cast<const char *>(wParam));
+			const int n = strlen(val);
+			if (lParam != 0) {
+				char *ptr = reinterpret_cast<char *>(lParam);
+				strcpy(ptr, val);
+			}
+			delete []val;
+			return n;	// Not including NUL
+		}
+
+	case SCI_GETPROPERTYINT:
+		return DocumentLexState()->props.GetInt(reinterpret_cast<const char *>(wParam), lParam);
+
+	case SCI_SETKEYWORDS:
+		DocumentLexState()->SetWordList(wParam, reinterpret_cast<const char *>(lParam));
+		break;
+
+	case SCI_SETLEXERLANGUAGE:
+		DocumentLexState()->SetLexerLanguage(reinterpret_cast<const char *>(lParam));
+		break;
+
+	case SCI_GETLEXERLANGUAGE:
+		return StringResult(lParam, DocumentLexState()->GetName());
+
+	case SCI_GETSTYLEBITSNEEDED:
+		return DocumentLexState()->GetStyleBitsNeeded();
 
 #endif
 

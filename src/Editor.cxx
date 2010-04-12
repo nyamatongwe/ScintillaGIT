@@ -4101,9 +4101,7 @@ void Editor::NotifyStyleNeeded(Document *, void *, int endStyleNeeded) {
 	NotifyStyleToNeeded(endStyleNeeded);
 }
 
-void Editor::NotifyLexerChanged(Document *doc, void *) {
-	int bits = doc->WndProc(wMain.GetID(), SCI_GETSTYLEBITSNEEDED, 0, 0);
-	vs.EnsureStyle((1 << bits) - 1);
+void Editor::NotifyLexerChanged(Document *, void *) {
 }
 
 void Editor::NotifyChar(int ch) {

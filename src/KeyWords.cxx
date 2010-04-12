@@ -221,6 +221,27 @@ LexerModule::LexerModule(int language_,
 	language(language_),
 	fnLexer(fnLexer_),
 	fnFolder(fnFolder_),
+	fnFactory(0),
+	wordListDescriptions(wordListDescriptions_),
+	styleBits(styleBits_),
+	languageName(languageName_) {
+	next = base;
+	base = this;
+	if (language == SCLEX_AUTOMATIC) {
+		language = nextLanguage;
+		nextLanguage++;
+	}
+}
+
+LexerModule::LexerModule(int language_, 
+	LexerFactoryFunction fnFactory_, 
+	const char *languageName_, 
+	const char * const wordListDescriptions_[],
+	int styleBits_) :
+	language(language_),
+	fnLexer(0),
+	fnFolder(0),
+	fnFactory(fnFactory_),
 	wordListDescriptions(wordListDescriptions_),
 	styleBits(styleBits_),
 	languageName(languageName_) {
@@ -259,6 +280,29 @@ const char *LexerModule::GetWordListDescription(int index) const {
 
 int LexerModule::GetStyleBitsNeeded() const {
 	return styleBits;
+}
+
+class LexerOldSchool : public LexerInstance {
+	const LexerModule *module;
+public:
+	LexerOldSchool(const LexerModule *module_) : module(module_) {
+	}
+	void Release() {
+		delete this;
+	}
+	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle, WordList *keywordlists[], Accessor &styler) {
+		module->Lex(startPos, lengthDoc, initStyle, keywordlists, styler);
+	}
+	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle, WordList *keywordlists[], Accessor &styler) {
+		module->Fold(startPos, lengthDoc, initStyle, keywordlists, styler);
+	}
+};
+
+LexerInstance *LexerModule::Create() const {
+	if (fnFactory)
+		return fnFactory();
+	else
+		return new LexerOldSchool(this);
 }
 
 const LexerModule *LexerModule::Find(int language) {

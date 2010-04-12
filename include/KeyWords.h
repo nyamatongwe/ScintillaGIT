@@ -32,8 +32,16 @@ public:
 	bool InListAbbreviated(const char *s, const char marker);
 };
 
+class LexerInstance {
+public:
+	virtual void Release() = 0;
+	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle, WordList *keywordlists[], Accessor &styler) = 0;
+	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle, WordList *keywordlists[], Accessor &styler) = 0;
+};
+
 typedef void (*LexerFunction)(unsigned int startPos, int lengthDoc, int initStyle,
                   WordList *keywordlists[], Accessor &styler);
+typedef LexerInstance *(*LexerFactoryFunction)();
                   
 /**
  * A LexerModule is responsible for lexing and folding a particular language.
@@ -46,6 +54,7 @@ protected:
 	int language;
 	LexerFunction fnLexer;
 	LexerFunction fnFolder;
+	LexerFactoryFunction fnFactory;
 	const char * const * wordListDescriptions;
 	int styleBits;
 
@@ -60,6 +69,11 @@ public:
 		LexerFunction fnFolder_=0,
 		const char * const wordListDescriptions_[] = NULL,
 		int styleBits_=5);
+	LexerModule(int language_, 
+		LexerFactoryFunction fnFactory_, 
+		const char *languageName_, 
+		const char * const wordListDescriptions_[] = NULL,
+		int styleBits_=8);
 	virtual ~LexerModule() {
 	}
 	int GetLanguage() const { return language; }
@@ -70,9 +84,11 @@ public:
 
 	int GetStyleBitsNeeded() const;
 
-	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle,
+	LexerInstance *Create() const;
+
+	virtual void Lex(unsigned int startPos, int length, int initStyle,
                   WordList *keywordlists[], Accessor &styler) const;
-	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle,
+	virtual void Fold(unsigned int startPos, int length, int initStyle,
                   WordList *keywordlists[], Accessor &styler) const;
 	static const LexerModule *Find(int language);
 	static const LexerModule *Find(const char *languageName);
