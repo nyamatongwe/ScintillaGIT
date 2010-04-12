@@ -1753,8 +1753,6 @@ void Editor::PaintSelMargin(Surface *surfWindow, PRectangle &rc) {
 						        lev >> 16
 						       );
 					}
-					int valval = pdoc->GetLineState(lineDoc);
-					sprintf(number, "%2x %03x", valval & 0xf, valval >> 4);
 					PRectangle rcNumber = rcMarker;
 					// Right justify
 					int width = surface->WidthText(vs.styles[STYLE_LINENUMBER].font, number, istrlen(number));
