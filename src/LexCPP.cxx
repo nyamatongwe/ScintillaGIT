@@ -11,8 +11,14 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+#ifdef _MSC_VER
+#pragma warning(disable: 4786)
+#endif
+
 #include <string>
+#include <vector>
 #include <map>
+#include <algorithm>
 
 #include "Platform.h"
 
@@ -53,20 +59,157 @@ static bool FollowsPostfixOperator(StyleContext &sc, Accessor &styler) {
 	return false;
 }
 
-static std::string GetRestOfLine(StyleContext sc, int i) {
+static std::string GetRestOfLine(Accessor &styler, int start, bool allowSpace) {
 	std::string restOfLine;
-	char ch = sc.GetRelative(i);
-	while (ch != '\r' && ch != '\n') {
-		if (ch != ' ')
+	int i =0;
+	char ch = styler.SafeGetCharAt(start + i, '\n');
+	while ((ch != '\r') && (ch != '\n')) {
+		if (allowSpace || (ch != ' '))
 			restOfLine += ch;
 		i++;
-		ch = sc.GetRelative(i);
+		ch = styler.SafeGetCharAt(start + i, '\n');
 	}
 	return restOfLine;
 }
 
-static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, WordList *keywordlists[],
-                            Accessor &styler, bool caseSensitive) {
+static bool IsStreamCommentStyle(int style) {
+	return style == SCE_C_COMMENT ||
+		style == SCE_C_COMMENTDOC ||
+		style == SCE_C_COMMENTDOCKEYWORD ||
+		style == SCE_C_COMMENTDOCKEYWORDERROR;
+}
+
+static std::vector<std::string> Tokenize(const std::string &s) {
+	// Break into space separated tokens
+	std::string word;
+	std::vector<std::string> tokens;
+	for (const char *cp = s.c_str(); *cp; cp++) {
+		if ((*cp == ' ') || (*cp == '\t')) {
+			if (!word.empty()) {
+				tokens.push_back(word);
+				word = "";
+			}
+		} else {
+			word += *cp;
+		}
+	}
+	if (!word.empty()) {
+		tokens.push_back(word);
+	}
+	return tokens;
+}
+
+struct PPDefinition {
+	int line;
+	std::string key;
+	std::string value;
+	PPDefinition(int line_, const std::string &key_, const std::string &value_) :
+		line(line_), key(key_), value(value_) {
+	}
+};
+
+class LinePPState {
+	int state;
+	int ifTaken;
+	int level;
+	bool ValidLevel() {
+		return level >= 0 && level < 32;
+	}
+	int maskLevel() const {
+		return 1 << level;
+	}
+public:
+	LinePPState() : state(0), ifTaken(0), level(-1) {
+	}
+	bool IsInactive() {
+		return state != 0;
+	}
+	bool CurrentIfTaken() {
+		return (ifTaken & maskLevel()) != 0;
+	}
+	void StartSection(bool on) {
+		level++;
+		if (ValidLevel()) {
+			if (on) {
+				state &= ~maskLevel();
+				ifTaken |= maskLevel();
+			} else {
+				state |= maskLevel();
+				ifTaken &= ~maskLevel();
+			}
+		}
+	}
+	void EndSection() {
+		if (ValidLevel()) {
+			state &= ~maskLevel();
+			ifTaken &= ~maskLevel();
+		}
+		level--;
+	}
+	void InvertCurrentLevel() {
+		if (ValidLevel()) {
+			state ^= maskLevel();
+			ifTaken |= maskLevel();
+		}
+	}
+};
+
+// Hold the preprocessor state for each line seen.
+// Currently one entry per line but could become sparse with just one entry per preprocessor line.
+class PPStates {
+	std::vector<LinePPState> vlls;
+public:
+	LinePPState ForLine(int line) {
+		if ((line > 0) && (vlls.size() > static_cast<size_t>(line))) {
+			return vlls[line];
+		} else {
+			return LinePPState();
+		}
+	}
+	void Add(int line, LinePPState lls) {
+		vlls.resize(line+1);
+		vlls[line] = lls;
+	}
+};
+
+class LexerCPP : public LexerInstance {
+	bool caseSensitive;
+	CharacterSet setWord;
+	CharacterSet setNegationOp;
+	CharacterSet setArithmethicOp;
+	CharacterSet setRelOp;
+	CharacterSet setLogicalOp;
+	PPStates vlls;
+	std::vector<PPDefinition> vppd;
+public:
+	LexerCPP(bool caseSensitive_) : 
+		caseSensitive(caseSensitive_),
+		setWord(CharacterSet::setAlphaNum, "._", 0x80, true),
+		setNegationOp(CharacterSet::setNone, "!"),
+		setArithmethicOp(CharacterSet::setNone, "+-/*%"),
+		setRelOp(CharacterSet::setNone, "=!<>"),
+		setLogicalOp(CharacterSet::setNone, "|&") {
+	}
+	~LexerCPP() {
+	}
+	void Release() {
+		delete this;
+	}
+	void Lex(unsigned int startPos, int length, int initStyle, WordList *keywordlists[], Accessor &styler);
+	void Fold(unsigned int startPos, int length, int initStyle, WordList *keywordlists[], Accessor &styler);
+
+	static LexerInstance *LexerFactoryCPP() {
+		return new LexerCPP(true);
+	}
+	static LexerInstance *LexerFactoryCPPInsensitive() {
+		return new LexerCPP(false);
+	}
+
+	void EvaluateTokens(std::vector<std::string> &tokens);
+	bool EvaluateExpression(const std::string &expr, const std::map<std::string, std::string> &preprocessorDefinitions);
+};
+
+void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, WordList *keywordlists[], Accessor &styler) {
 
 	WordList &keywords = *keywordlists[0];
 	WordList &keywords2 = *keywordlists[1];
@@ -148,17 +291,29 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 	}
 
 	StyleContext sc(startPos, length, initStyle, styler, 0x7f);
-	int preprocLevel = 0;
-	int preprocState = 0;
-	if (lineCurrent > 0) {
-		preprocLevel = styler.GetLineState(lineCurrent) & 0xf;
-		preprocState = (styler.GetLineState(lineCurrent) >> 4) & 0xff;
+	LinePPState preproc = vlls.ForLine(lineCurrent);
+
+	// Truncate vppd before current line
+	struct After {
+		int line;
+		After(int line_) : line(line_) {}
+		bool operator() (PPDefinition &p) const {
+			return p.line > line;
+		}
+	};
+	
+	std::vector<PPDefinition>::iterator itInvalid = std::find_if(vppd.begin(), vppd.end(), After(lineCurrent-1));
+	if (itInvalid != vppd.end()) {
+		vppd.erase(itInvalid, vppd.end());
+	}
+	
+	for (std::vector<PPDefinition>::iterator itDef = vppd.begin(); itDef != vppd.end(); itDef++) {
+		preprocessorDefinitions[itDef->key] = itDef->value;
 	}
 
 	const int maskActivity = 0x3F;
 
-	// TODO: grab from line state
-	int activitySet = preprocState ? 0x40 : 0;
+	int activitySet = preproc.IsInactive() ? 0x40 : 0;
 
 	for (; sc.More(); sc.Forward()) {
 
@@ -173,14 +328,14 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 			visibleChars = 0;
 			lastWordWasUUID = false;
 			isIncludePreprocessor = false;
-			if (preprocState != 0) {
+			if (preproc.IsInactive()) {
 				activitySet = 0x40;
 				sc.SetState(sc.state | activitySet);
 			}
 			if (activitySet) {
 				if (sc.ch == '#') {
 					if (sc.Match("#else") || sc.Match("#end") || sc.Match("#if")) {
-						activitySet = 0;
+						//activitySet = 0;
 					}
 				}
 			}
@@ -188,8 +343,7 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 
 		if (sc.atLineEnd) {
 			lineCurrent++;
-			int val = (preprocLevel & 0xf) | ((preprocState &0xfff) << 4);
-			styler.SetLineState(lineCurrent, val);
+			vlls.Add(lineCurrent, preproc);
 		}
 
 		// Handle line continuation generically.
@@ -416,40 +570,62 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 					isIncludePreprocessor = true;
 				} else {
 					if (trackPreprocessor) {
-						// do clever stuff
 						if (sc.Match("ifdef") || sc.Match("ifndef")) {
-							// grab rest of line
 							bool isIfDef = sc.Match("ifdef");
 							int i = isIfDef ? 5 : 6;
-							std::string restOfLine = GetRestOfLine(sc, i);
+							std::string restOfLine = GetRestOfLine(styler, sc.currentPos + i + 1, false);
 							bool foundDef = preprocessorDefinitions.find(restOfLine) != preprocessorDefinitions.end();
-							if (isIfDef == foundDef) {
-								preprocState &= ~(1 << preprocLevel);
-							} else {
-								preprocState |= 1 << preprocLevel;
-							}
-							preprocLevel++;
+							preproc.StartSection(isIfDef == foundDef);
 						} else if (sc.Match("if")) {
-							std::string restOfLine = GetRestOfLine(sc, 2);
-							bool ifGood = false;
-							if (preprocessorDefinitions.find(restOfLine) != preprocessorDefinitions.end()) {
-								std::string val = preprocessorDefinitions[restOfLine];
-								if (atoi(val.c_str()))
-									ifGood = true;
-							}
-							if (ifGood) {
-								preprocState &= ~(1 << preprocLevel);
-							} else {
-								preprocState |= 1 << preprocLevel;
-							}
-							preprocLevel++;
+							std::string restOfLine = GetRestOfLine(styler, sc.currentPos + 2, true);
+							bool ifGood = EvaluateExpression(restOfLine, preprocessorDefinitions);
+							preproc.StartSection(ifGood);
 						} else if (sc.Match("else")) {
-							preprocState ^= 1 << (preprocLevel - 1);
-							//sc.SetState(SCE_C_DEFAULT);
+							if (!preproc.CurrentIfTaken()) {
+								preproc.InvertCurrentLevel();
+								activitySet = preproc.IsInactive() ? 0x40 : 0;
+								if (!activitySet)
+									sc.ChangeState(SCE_C_PREPROCESSOR|activitySet);
+							}
+						} else if (sc.Match("elif")) {
+							// Ensure only one chosen out of #if .. #elif .. #elif .. #else .. #endif
+							if (!preproc.CurrentIfTaken()) {
+								// Similar to #if
+								std::string restOfLine = GetRestOfLine(styler, sc.currentPos + 2, true);
+								bool ifGood = EvaluateExpression(restOfLine, preprocessorDefinitions);
+								if (ifGood) {
+									preproc.InvertCurrentLevel();
+									activitySet = preproc.IsInactive() ? 0x40 : 0;
+									if (!activitySet)
+										sc.ChangeState(SCE_C_PREPROCESSOR|activitySet);
+								}
+							} else if (!preproc.IsInactive()) {
+								preproc.InvertCurrentLevel();
+								activitySet = preproc.IsInactive() ? 0x40 : 0;
+								if (!activitySet)
+									sc.ChangeState(SCE_C_PREPROCESSOR|activitySet);
+							}
 						} else if (sc.Match("endif")) {
-							preprocLevel--;
-							preprocState &= ~(1 << preprocLevel);
-							//sc.SetState(SCE_C_DEFAULT);
+							preproc.EndSection();
+							activitySet = preproc.IsInactive() ? 0x40 : 0;
+							sc.ChangeState(SCE_C_PREPROCESSOR|activitySet);
+						} else if (sc.Match("define")) {
+							if (!preproc.IsInactive()) {
+								std::string restOfLine = GetRestOfLine(styler, sc.currentPos + 6, true);
+								if (restOfLine.find(")") == std::string::npos) {	// Don't handle macros with arguments
+									std::vector<std::string> tokens = Tokenize(restOfLine);
+									std::string key;
+									std::string value("1");
+									if (tokens.size() >= 1) {
+										key = tokens[0];
+										if (tokens.size() >= 2) {
+											value = tokens[1];
+										}
+										preprocessorDefinitions[key] = value;
+										vppd.push_back(PPDefinition(lineCurrent, key, value));
+									}
+								}
+							}
 						}
 					}
 				}
@@ -467,18 +643,11 @@ static void ColouriseCppDoc(unsigned int startPos, int length, int initStyle, Wo
 	sc.Complete();
 }
 
-static bool IsStreamCommentStyle(int style) {
-	return style == SCE_C_COMMENT ||
-		style == SCE_C_COMMENTDOC ||
-		style == SCE_C_COMMENTDOCKEYWORD ||
-		style == SCE_C_COMMENTDOCKEYWORDERROR;
-}
-
 // Store both the current line's fold level and the next lines in the
 // level store to make it easy to pick up with each increment
 // and to make it possible to fiddle the current level for "} else {".
-static void FoldCppDoc(unsigned int startPos, int length, int initStyle,
-					   WordList *[], Accessor &styler) {
+
+void LexerCPP::Fold(unsigned int startPos, int length, int initStyle, WordList *[], Accessor &styler) {
 
 	// property fold.comment
 	//	This option enables folding multi-line comments and explicit fold points when using the C++ lexer.
@@ -585,6 +754,150 @@ static void FoldCppDoc(unsigned int startPos, int length, int initStyle,
 	}
 }
 
+void LexerCPP::EvaluateTokens(std::vector<std::string> &tokens) {
+
+	// Evaluate defined() statements to either 0 or 1
+	for (size_t i=0; (i+2)<tokens.size();) {
+		if ((tokens[i] == "defined") && (tokens[i+1] == "(")) {
+			const char *val = "0";
+			if (tokens[i+2] == ")") {
+				// defined()
+				tokens.erase(tokens.begin() + i + 1, tokens.begin() + i + 3);
+			} else if (((i+2)<tokens.size()) && (tokens[i+3] == ")")) {
+				// defined(<int>)
+				tokens.erase(tokens.begin() + i + 1, tokens.begin() + i + 4);
+				val = "1";
+			}
+			tokens[i] = val;
+		} else {
+			i++;
+		}
+	}
+
+	// Find bracketed subexpressions and recurse on them
+	std::vector<std::string>::iterator itBracket = std::find(tokens.begin(), tokens.end(), "(");
+	std::vector<std::string>::iterator itEndBracket = std::find(tokens.begin(), tokens.end(), ")");
+	while ((itBracket != tokens.end()) && (itEndBracket != tokens.end()) && (itEndBracket > itBracket)) {
+		std::vector<std::string> inBracket(itBracket + 1, itEndBracket);
+		EvaluateTokens(inBracket);
+		std::vector<std::string>::iterator itInsert = tokens.erase(itBracket, itEndBracket + 1);
+		tokens.insert(itInsert, inBracket.begin(), inBracket.end());
+		itBracket = std::find(tokens.begin(), tokens.end(), "(");
+		itEndBracket = std::find(tokens.begin(), tokens.end(), ")");
+	}
+
+	// Evaluate logical negations
+	for (size_t j=0; (j+1)<tokens.size();) {
+		if (setNegationOp.Contains(tokens[j][0])) {
+			int isTrue = atoi(tokens[j+1].c_str());
+			if (tokens[j] == "!")
+				isTrue = !isTrue;
+			std::vector<std::string>::iterator itInsert = 
+				tokens.erase(tokens.begin() + j, tokens.begin() + j + 2);
+			tokens.insert(itInsert, isTrue ? "1" : "0");
+		} else {
+			j++;
+		}
+	}
+
+	// Evaluate expressions in precedence order
+	enum precedence { precArithmetic, precRelative, precLogical };
+	for (int prec=precArithmetic; prec <= precLogical; prec++) {
+		// Looking at 3 tokens at a time so end at 2 before end
+		for (size_t k=0; (k+2)<tokens.size();) {
+			char chOp = tokens[k+1][0];
+			if (
+				((prec==precArithmetic) && setArithmethicOp.Contains(chOp)) ||
+				((prec==precRelative) && setRelOp.Contains(chOp)) ||
+				((prec==precLogical) && setLogicalOp.Contains(chOp))
+				) {
+				int valA = atoi(tokens[k].c_str());
+				int valB = atoi(tokens[k+2].c_str());
+				int result = 0;
+				if (tokens[k+1] == "+")
+					result = valA + valB;
+				else if (tokens[k+1] == "-")
+					result = valA - valB;
+				else if (tokens[k+1] == "*")
+					result = valA * valB;
+				else if (tokens[k+1] == "/")
+					result = valA / valB;
+				else if (tokens[k+1] == "%")
+					result = valA % valB;
+				else if (tokens[k+1] == "<")
+					result = valA < valB;
+				else if (tokens[k+1] == "<=")
+					result = valA <= valB;
+				else if (tokens[k+1] == ">")
+					result = valA > valB;
+				else if (tokens[k+1] == ">=")
+					result = valA >= valB;
+				else if (tokens[k+1] == "==")
+					result = valA == valB;
+				else if (tokens[k+1] == "!=")
+					result = valA != valB;
+				else if (tokens[k+1] == "||")
+					result = valA || valB;
+				else if (tokens[k+1] == "&&")
+					result = valA && valB;
+				char sResult[30];
+				sprintf(sResult, "%d", result);
+				std::vector<std::string>::iterator itInsert = 
+					tokens.erase(tokens.begin() + k, tokens.begin() + k + 3);
+				tokens.insert(itInsert, sResult);
+			} else {
+				k++;
+			}
+		}
+	}
+}
+
+bool LexerCPP::EvaluateExpression(const std::string &expr, const std::map<std::string, std::string> &preprocessorDefinitions) {
+	// Break into tokens, replacing with definitions
+	std::string word;
+	std::vector<std::string> tokens;
+	const char *cp = expr.c_str();
+	for (;;) {
+		if (setWord.Contains(*cp)) {
+			word += *cp;
+		} else {
+			std::map<std::string, std::string>::const_iterator it = preprocessorDefinitions.find(word);
+			if (it != preprocessorDefinitions.end()) {
+				tokens.push_back(it->second);
+			} else if ((word[0] >= '0' && word[0] <= '9') || (word == "defined")) {
+				tokens.push_back(word);
+			}
+			word = "";
+			if (!*cp) {
+				break;
+			}
+			if ((*cp != ' ') && (*cp != '\t')) {
+				std::string op(cp, 1);
+				if (setRelOp.Contains(*cp)) {
+					if (setRelOp.Contains(cp[1])) {
+						op += cp[1];
+						cp++;
+					}
+				} else if (setLogicalOp.Contains(*cp)) {
+					if (setLogicalOp.Contains(cp[1])) {
+						op += cp[1];
+						cp++;
+					}
+				}
+				tokens.push_back(op);
+			}
+		}
+		cp++;
+	}
+
+	EvaluateTokens(tokens);
+
+	// "0" or "" -> false else true
+	bool isFalse = (tokens.size() == 0) || 
+		((tokens.size() == 1) && ((tokens[0] == "") || tokens[0] == "0"));
+	return !isFalse;
+}
+
 static const char *const cppWordLists[] = {
             "Primary keywords and identifiers",
             "Secondary keywords and identifiers",
@@ -594,15 +907,5 @@ static const char *const cppWordLists[] = {
             0,
 };
 
-static void ColouriseCppDocSensitive(unsigned int startPos, int length, int initStyle, WordList *keywordlists[],
-                                     Accessor &styler) {
-	ColouriseCppDoc(startPos, length, initStyle, keywordlists, styler, true);
-}
-
-static void ColouriseCppDocInsensitive(unsigned int startPos, int length, int initStyle, WordList *keywordlists[],
-                                       Accessor &styler) {
-	ColouriseCppDoc(startPos, length, initStyle, keywordlists, styler, false);
-}
-
-LexerModule lmCPP(SCLEX_CPP, ColouriseCppDocSensitive, "cpp", FoldCppDoc, cppWordLists, 7);
-LexerModule lmCPPNoCase(SCLEX_CPPNOCASE, ColouriseCppDocInsensitive, "cppnocase", FoldCppDoc, cppWordLists, 7);
+LexerModule lmCPP(SCLEX_CPP, LexerCPP::LexerFactoryCPP, "cpp", cppWordLists);
+LexerModule lmCPPNoCase(SCLEX_CPPNOCASE, LexerCPP::LexerFactoryCPPInsensitive, "cppnocase", cppWordLists);
