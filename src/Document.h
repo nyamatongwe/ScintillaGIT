@@ -306,6 +306,7 @@ public:
 	int SetLineState(int line, int state);
 	int GetLineState(int line);
 	int GetMaxLineState();
+	void ChangeLexerState(int start, int end);
 
 	StyledText MarginStyledText(int line);
 	void MarginSetStyle(int line, int style);

@@ -60,6 +60,8 @@ public:
 	void SetLevel(int line, int level);
 	int IndentAmount(int line, int *flags, PFNIsCommentLeader pfnIsCommentLeader = 0);
 	void IndicatorFill(int start, int end, int indicator, int value);
+
+	void ChangeLexerState(int start, int end);
 };
 
 #ifdef SCI_NAMESPACE

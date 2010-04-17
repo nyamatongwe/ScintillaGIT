@@ -4285,6 +4285,14 @@ void Editor::NotifyModified(Document *, DocModification mh, void *) {
 			Redraw();
 		}
 	}
+	if (mh.modificationType & SC_MOD_LEXERSTATE) {
+		if (paintState == painting) {
+			CheckForChangeOutsidePaint(
+			    Range(mh.position, mh.position + mh.length));
+		} else {
+			Redraw();
+		}
+	}
 	if (mh.modificationType & (SC_MOD_CHANGESTYLE | SC_MOD_CHANGEINDICATOR)) {
 		if (mh.modificationType & SC_MOD_CHANGESTYLE) {
 			pdoc->IncrementStyleClock();
@@ -8633,6 +8641,10 @@ sptr_t Editor::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lParam) {
 	case SCI_SWAPMAINANCHORCARET:
 		InvalidateSelection(sel.RangeMain());
 		sel.RangeMain() = SelectionRange(sel.RangeMain().anchor, sel.RangeMain().caret);
+		break;
+
+	case SCI_CHANGELEXERSTATE:
+		pdoc->ChangeLexerState(wParam, lParam);
 		break;
 
 	default:

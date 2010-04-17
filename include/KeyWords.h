@@ -35,8 +35,10 @@ public:
 class LexerInstance {
 public:
 	virtual void Release() = 0;
-	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle, WordList *keywordlists[], Accessor &styler) = 0;
-	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle, WordList *keywordlists[], Accessor &styler) = 0;
+	virtual void PropSet(const char *key, const char *val) = 0;
+	virtual void SetWordList(int n, const char *wl) = 0;
+	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle, Accessor &styler) = 0;
+	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle, Accessor &styler) = 0;
 };
 
 typedef void (*LexerFunction)(unsigned int startPos, int lengthDoc, int initStyle,

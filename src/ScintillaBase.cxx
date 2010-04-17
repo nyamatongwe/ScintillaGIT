@@ -469,26 +469,26 @@ class LexState : public LexInterface {
 	const LexerModule *lexCurrent;
 	LexerInstance *instance;
 	void SetLexerModule(const LexerModule *lex);
+	PropSetSimple props;
+	enum {numWordLists=KEYWORDSET_MAX+1};
+	WordList *keyWordLists[numWordLists+1];
 public:
 	Document *pdoc;
 	bool performingStyle;	///< Prevent reentrance
 	int lexLanguage;
-	PropSetSimple props;
-	enum {numWordLists=KEYWORDSET_MAX+1};
-	WordList *keyWordLists[numWordLists+1];
 
 	LexState(Document *pdoc_);
 	virtual ~LexState();
 	void SetLexer(uptr_t wParam);
 	void SetLexerLanguage(const char *languageName);
 	void SetWordList(int n, const char *wl);
-	void SetFreeMemoryFunction(void *p);
-	void *GetFreeMemoryFunction();
-	void SetFreeMemoryArgument(sptr_t p);
-	sptr_t GetFreeMemoryArgument();
 	int GetStyleBitsNeeded() const;
 	const char *GetName() const;
 	void Colourise(WindowID wid, int start, int end);
+	void PropSet(const char *key, const char *val);
+	const char *PropGet(const char *key) const;
+	int PropGetInt(const char *key, int defaultValue=0) const;
+	int PropGetExpanded(const char *key, char *result) const;
 };
 
 LexState::LexState(Document *pdoc_) {
@@ -551,6 +551,8 @@ void LexState::SetWordList(int n, const char *wl) {
 	if (n < numWordLists) {
 		keyWordLists[n]->Clear();
 		keyWordLists[n]->Set(wl);
+		if (instance)
+			instance->SetWordList(n, wl);
 	}
 }
 
@@ -588,10 +590,10 @@ void LexState::Colourise(WindowID wid, int start, int end) {
 
 		if (len > 0) {
 			if (instance) {
-				instance->Lex(start, len, styleStart, keyWordLists, styler);
+				instance->Lex(start, len, styleStart, styler);
 				styler.Flush();
 				if (styler.GetPropertyInt("fold")) {
-					instance->Fold(start, len, styleStart, keyWordLists, styler);
+					instance->Fold(start, len, styleStart, styler);
 					styler.Flush();
 				}
 			}
@@ -601,6 +603,25 @@ void LexState::Colourise(WindowID wid, int start, int end) {
 	}
 	Platform::DebugPrintf("Style:%d %9.6g \n", performingStyle, et.Duration());
 }
+
+void LexState::PropSet(const char *key, const char *val) {
+	props.Set(key, val);
+	if (instance)
+		instance->PropSet(key, val);
+}
+
+const char *LexState::PropGet(const char *key) const {
+	return props.Get(key);
+}
+
+int LexState::PropGetInt(const char *key, int defaultValue) const {
+	return props.GetInt(key, defaultValue);
+}
+
+int LexState::PropGetExpanded(const char *key, char *result) const {
+	return props.GetExpanded(key, result);
+}
+
 #endif
 
 void ScintillaBase::NotifyStyleToNeeded(int endStyleNeeded) {
@@ -802,26 +823,19 @@ sptr_t ScintillaBase::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lPara
 		break;
 
 	case SCI_SETPROPERTY:
-		DocumentLexState()->props.Set(reinterpret_cast<const char *>(wParam),
+		DocumentLexState()->PropSet(reinterpret_cast<const char *>(wParam),
 		          reinterpret_cast<const char *>(lParam));
 		break;
 
 	case SCI_GETPROPERTY:
-			return StringResult(lParam, DocumentLexState()->props.Get(reinterpret_cast<const char *>(wParam)));
+		return StringResult(lParam, DocumentLexState()->PropGet(reinterpret_cast<const char *>(wParam)));
 
-	case SCI_GETPROPERTYEXPANDED: {
-			char *val = DocumentLexState()->props.Expanded(reinterpret_cast<const char *>(wParam));
-			const int n = strlen(val);
-			if (lParam != 0) {
-				char *ptr = reinterpret_cast<char *>(lParam);
-				strcpy(ptr, val);
-			}
-			delete []val;
-			return n;	// Not including NUL
-		}
+	case SCI_GETPROPERTYEXPANDED:
+		return DocumentLexState()->PropGetExpanded(reinterpret_cast<const char *>(wParam), 
+			reinterpret_cast<char *>(lParam));
 
 	case SCI_GETPROPERTYINT:
-		return DocumentLexState()->props.GetInt(reinterpret_cast<const char *>(wParam), lParam);
+		return DocumentLexState()->PropGetInt(reinterpret_cast<const char *>(wParam), lParam);
 
 	case SCI_SETKEYWORDS:
 		DocumentLexState()->SetWordList(wParam, reinterpret_cast<const char *>(lParam));

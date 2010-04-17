@@ -783,6 +783,7 @@ typedef sptr_t (*SciFnDirect)(sptr_t ptr, unsigned int iMessage, uptr_t wParam, 
 #define SCI_GETADDITIONALCARETFORE 2605
 #define SCI_ROTATESELECTION 2606
 #define SCI_SWAPMAINANCHORCARET 2607
+#define SCI_CHANGELEXERSTATE 2617
 #define SCI_STARTRECORD 3001
 #define SCI_STOPRECORD 3002
 #define SCI_SETLEXER 4001
@@ -817,7 +818,8 @@ typedef sptr_t (*SciFnDirect)(sptr_t ptr, unsigned int iMessage, uptr_t wParam, 
 #define SC_MOD_CHANGEMARGIN 0x10000
 #define SC_MOD_CHANGEANNOTATION 0x20000
 #define SC_MOD_CONTAINER 0x40000
-#define SC_MODEVENTMASKALL 0x7FFFF
+#define SC_MOD_LEXERSTATE 0x80000
+#define SC_MODEVENTMASKALL 0xFFFFF
 #define SCEN_CHANGE 768
 #define SCEN_SETFOCUS 512
 #define SCEN_KILLFOCUS 256

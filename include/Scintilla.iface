@@ -2084,6 +2084,10 @@ fun void RotateSelection=2606(,)
 # Swap that caret and anchor of the main selection.
 fun void SwapMainAnchorCaret=2607(,)
 
+# Indicate that the internal state of a lexer has changed over a range and therefore
+# there may be a need to redraw.
+fun int ChangeLexerState=2617(position start, position end)
+
 # Start notifying the container of all key presses and commands.
 fun void StartRecord=3001(,)
 
@@ -2156,7 +2160,8 @@ val SC_MOD_CHANGELINESTATE=0x8000
 val SC_MOD_CHANGEMARGIN=0x10000
 val SC_MOD_CHANGEANNOTATION=0x20000
 val SC_MOD_CONTAINER=0x40000
-val SC_MODEVENTMASKALL=0x7FFFF
+val SC_MOD_LEXERSTATE=0x80000
+val SC_MODEVENTMASKALL=0xFFFFF
 
 # For compatibility, these go through the COMMAND notification rather than NOTIFY
 # and should have had exactly the same values as the EN_* constants.

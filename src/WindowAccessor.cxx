@@ -189,3 +189,7 @@ void WindowAccessor::IndicatorFill(int start, int end, int indicator, int value)
 		Platform::SendScintilla(id, SCI_INDICATORCLEARRANGE, start, end - start);
 	}
 }
+
+void WindowAccessor::ChangeLexerState(int start, int end) {
+	Platform::SendScintilla(id, SCI_CHANGELEXERSTATE, start, end);
+}

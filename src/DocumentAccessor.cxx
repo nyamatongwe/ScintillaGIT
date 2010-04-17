@@ -198,3 +198,7 @@ void DocumentAccessor::IndicatorFill(int start, int end, int indicator, int valu
 	pdoc->decorations.SetCurrentIndicator(indicator);
 	pdoc->DecorationFillRange(start, value, end - start);
 }
+
+void DocumentAccessor::ChangeLexerState(int start, int end) {
+	pdoc->ChangeLexerState(start, end);
+}

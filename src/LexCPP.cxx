@@ -23,6 +23,7 @@
 #include "Platform.h"
 
 #include "PropSet.h"
+#include "PropSetSimple.h"
 #include "Accessor.h"
 #include "StyleContext.h"
 #include "KeyWords.h"
@@ -181,6 +182,9 @@ class LexerCPP : public LexerInstance {
 	CharacterSet setLogicalOp;
 	PPStates vlls;
 	std::vector<PPDefinition> vppd;
+	PropSetSimple props;
+	enum {numWordLists=KEYWORDSET_MAX+1};
+	WordList *keyWordLists[numWordLists+1];
 public:
 	LexerCPP(bool caseSensitive_) : 
 		caseSensitive(caseSensitive_),
@@ -189,14 +193,19 @@ public:
 		setArithmethicOp(CharacterSet::setNone, "+-/*%"),
 		setRelOp(CharacterSet::setNone, "=!<>"),
 		setLogicalOp(CharacterSet::setNone, "|&") {
+		for (int wl = 0; wl < numWordLists; wl++)
+			keyWordLists[wl] = new WordList;
+		keyWordLists[numWordLists] = 0;
 	}
 	~LexerCPP() {
 	}
 	void Release() {
 		delete this;
 	}
-	void Lex(unsigned int startPos, int length, int initStyle, WordList *keywordlists[], Accessor &styler);
-	void Fold(unsigned int startPos, int length, int initStyle, WordList *keywordlists[], Accessor &styler);
+	void PropSet(const char *key, const char *val);
+	void SetWordList(int n, const char *wl);
+	void Lex(unsigned int startPos, int length, int initStyle, Accessor &styler);
+	void Fold(unsigned int startPos, int length, int initStyle, Accessor &styler);
 
 	static LexerInstance *LexerFactoryCPP() {
 		return new LexerCPP(true);
@@ -209,13 +218,24 @@ public:
 	bool EvaluateExpression(const std::string &expr, const std::map<std::string, std::string> &preprocessorDefinitions);
 };
 
-void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, WordList *keywordlists[], Accessor &styler) {
+void LexerCPP::PropSet(const char *key, const char *val) {
+	props.Set(key, val);
+}
 
-	WordList &keywords = *keywordlists[0];
-	WordList &keywords2 = *keywordlists[1];
-	WordList &keywords3 = *keywordlists[2];
-	WordList &keywords4 = *keywordlists[3];
-	WordList &ppDefinitions = *keywordlists[4];
+void LexerCPP::SetWordList(int n, const char *wl) {
+	if (n < numWordLists) {
+		keyWordLists[n]->Clear();
+		keyWordLists[n]->Set(wl);
+	}
+}
+
+void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &styler) {
+
+	WordList &keywords = *keyWordLists[0];
+	WordList &keywords2 = *keyWordLists[1];
+	WordList &keywords3 = *keyWordLists[2];
+	WordList &keywords4 = *keyWordLists[3];
+	WordList &ppDefinitions = *keyWordLists[4];
 
 	std::map<std::string, std::string> preprocessorDefinitions;
 	for (int nDefinition = 0; nDefinition < ppDefinitions.len; nDefinition++) {
@@ -293,6 +313,8 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, WordList *k
 	StyleContext sc(startPos, length, initStyle, styler, 0x7f);
 	LinePPState preproc = vlls.ForLine(lineCurrent);
 
+	bool definitionsChanged = false;
+
 	// Truncate vppd before current line
 	struct After {
 		int line;
@@ -305,6 +327,7 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, WordList *k
 	std::vector<PPDefinition>::iterator itInvalid = std::find_if(vppd.begin(), vppd.end(), After(lineCurrent-1));
 	if (itInvalid != vppd.end()) {
 		vppd.erase(itInvalid, vppd.end());
+		definitionsChanged = true;
 	}
 	
 	for (std::vector<PPDefinition>::iterator itDef = vppd.begin(); itDef != vppd.end(); itDef++) {
@@ -623,6 +646,7 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, WordList *k
 										}
 										preprocessorDefinitions[key] = value;
 										vppd.push_back(PPDefinition(lineCurrent, key, value));
+										definitionsChanged = true;
 									}
 								}
 							}
@@ -640,6 +664,8 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, WordList *k
 		}
 		continuationLine = false;
 	}
+	if (definitionsChanged)
+		styler.ChangeLexerState(startPos, startPos + length);
 	sc.Complete();
 }
 
@@ -647,7 +673,7 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, WordList *k
 // level store to make it easy to pick up with each increment
 // and to make it possible to fiddle the current level for "} else {".
 
-void LexerCPP::Fold(unsigned int startPos, int length, int initStyle, WordList *[], Accessor &styler) {
+void LexerCPP::Fold(unsigned int startPos, int length, int initStyle, Accessor &styler) {
 
 	// property fold.comment
 	//	This option enables folding multi-line comments and explicit fold points when using the C++ lexer.

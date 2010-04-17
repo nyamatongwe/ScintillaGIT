@@ -14,6 +14,7 @@
 #include "Platform.h"
 
 #include "PropSet.h"
+#include "PropSetSimple.h"
 #include "Accessor.h"
 #include "KeyWords.h"
 #include "Scintilla.h"
@@ -282,19 +283,35 @@ int LexerModule::GetStyleBitsNeeded() const {
 	return styleBits;
 }
 
-class LexerOldSchool : public LexerInstance {
+// A simple lexer with no state
+class LexerSimple : public LexerInstance {
 	const LexerModule *module;
+	PropSetSimple props;
+	enum {numWordLists=KEYWORDSET_MAX+1};
+	WordList *keyWordLists[numWordLists+1];
 public:
-	LexerOldSchool(const LexerModule *module_) : module(module_) {
+	LexerSimple(const LexerModule *module_) : module(module_) {
+		for (int wl = 0; wl < numWordLists; wl++)
+			keyWordLists[wl] = new WordList;
+		keyWordLists[numWordLists] = 0;
 	}
 	void Release() {
 		delete this;
 	}
-	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle, WordList *keywordlists[], Accessor &styler) {
-		module->Lex(startPos, lengthDoc, initStyle, keywordlists, styler);
+	void PropSet(const char *key, const char *val) {
+		props.Set(key, val);
 	}
-	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle, WordList *keywordlists[], Accessor &styler) {
-		module->Fold(startPos, lengthDoc, initStyle, keywordlists, styler);
+	void SetWordList(int n, const char *wl) {
+		if (n < numWordLists) {
+			keyWordLists[n]->Clear();
+			keyWordLists[n]->Set(wl);
+		}
+	}
+	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle, Accessor &styler) {
+		module->Lex(startPos, lengthDoc, initStyle, keyWordLists, styler);
+	}
+	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle, Accessor &styler) {
+		module->Fold(startPos, lengthDoc, initStyle, keyWordLists, styler);
 	}
 };
 
@@ -302,7 +319,7 @@ LexerInstance *LexerModule::Create() const {
 	if (fnFactory)
 		return fnFactory();
 	else
-		return new LexerOldSchool(this);
+		return new LexerSimple(this);
 }
 
 const LexerModule *LexerModule::Find(int language) {

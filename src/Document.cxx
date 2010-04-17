@@ -1386,6 +1386,11 @@ int Document::GetMaxLineState() {
 	return static_cast<LineState *>(perLineData[ldState])->GetMaxLineState();
 }
 
+void Document::ChangeLexerState(int start, int end) {
+	DocModification mh(SC_MOD_LEXERSTATE, start, end-start, 0, 0, 0);
+	NotifyModified(mh);
+}
+
 StyledText Document::MarginStyledText(int line) {
 	LineAnnotation *pla = static_cast<LineAnnotation *>(perLineData[ldMargin]);
 	return StyledText(pla->Length(line), pla->Text(line),
