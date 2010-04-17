@@ -151,6 +151,16 @@ char *PropSetSimple::Expanded(const char *key) const {
 	return ret;
 }
 
+int PropSetSimple::GetExpanded(const char *key, char *result) const {
+	char *val = Expanded(key);
+	const int n = strlen(val);
+	if (result) {
+		strcpy(result, val);
+	}
+	delete []val;
+	return n;	// Not including NUL
+}
+
 char *PropSetSimple::ToString() const {
 	mapss *props = static_cast<mapss *>(impl);
 	std::string sval;
