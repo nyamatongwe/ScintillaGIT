@@ -173,6 +173,78 @@ public:
 	}
 };
 
+struct LexCPPOptions {
+	bool stylingWithinPreprocessor;
+	bool identifiersAllowDollars;
+	bool trackPreprocessor;
+	bool updatePreprocessor;
+	bool foldComment;
+	bool foldPreprocessor;
+	bool foldCompact;
+	bool foldAtElse;
+	LexCPPOptions() : 
+		stylingWithinPreprocessor(false),
+		identifiersAllowDollars(true),
+		trackPreprocessor(true), 
+		updatePreprocessor(true),
+		foldComment(false),
+		foldPreprocessor(false),
+		foldCompact(false),
+		foldAtElse(false) {
+	}
+	bool operator!=(const LexCPPOptions &other) const {
+		return 
+			stylingWithinPreprocessor != other.stylingWithinPreprocessor ||
+			identifiersAllowDollars != other.identifiersAllowDollars ||
+			trackPreprocessor != other.trackPreprocessor ||
+			updatePreprocessor != other.updatePreprocessor ||
+			foldComment != other.foldComment ||
+			foldPreprocessor != other.foldPreprocessor ||
+			foldCompact != other.foldCompact ||
+			foldAtElse != other.foldAtElse;
+	}
+	void PropertyCheck(const char *name, bool &option, const char *key, const char *val) {
+		if (strcmp(name, key) == 0) {
+			option = atoi(val) != 0;
+		}
+	}
+	void PropertySet(const char *key, const char *val) {
+		// property styling.within.preprocessor
+		//	For C++ code, determines whether all preprocessor code is styled in the preprocessor style (0, the default)
+		//	or only from the initial # to the end of the command word(1).
+		PropertyCheck("styling.within.preprocessor", stylingWithinPreprocessor, key, val);
+
+		// property lexer.cpp.allow.dollars
+		//	Set to 0 to disallow the '$' character in identifiers with the cpp lexer.
+		PropertyCheck("lexer.cpp.allow.dollars", identifiersAllowDollars, key, val);
+
+		// property lexer.cpp.track.preprocessor
+		//	Set to 1 to interpret #if/#else/#endif to grey out code that is not active.
+		PropertyCheck("lexer.cpp.track.preprocessor", trackPreprocessor, key, val);
+
+		// property lexer.cpp.update.preprocessor
+		//	Set to 1 to update preprocessor definitions when #define found
+		PropertyCheck("lexer.cpp.update.preprocessor", updatePreprocessor, key, val);
+
+		// property fold.comment
+		//	This option enables folding multi-line comments and explicit fold points when using the C++ lexer.
+		//	Explicit fold points allows adding extra folding by placing a //{ comment at the start and a //}
+		//	at the end of a section that should fold.
+		PropertyCheck("fold.comment", foldComment, key, val);
+
+		// property fold.preprocessor
+		//	This option enables folding preprocessor directives when using the C++ lexer.
+		//	Includes C#'s explicit #region and #endregion folding directives.
+		PropertyCheck("fold.preprocessor", foldPreprocessor, key, val);
+
+		PropertyCheck("fold.compact", foldCompact, key, val);
+
+		// property fold.at.else
+		//	This option enables C++ folding on a "} else {" line of an if statement.
+		PropertyCheck("fold.at.else", foldAtElse, key, val);	
+	}
+};
+
 class LexerCPP : public LexerInstance {
 	bool caseSensitive;
 	CharacterSet setWord;
@@ -181,10 +253,15 @@ class LexerCPP : public LexerInstance {
 	CharacterSet setRelOp;
 	CharacterSet setLogicalOp;
 	PPStates vlls;
-	std::vector<PPDefinition> vppd;
+	std::vector<PPDefinition> ppDefineHistory;
 	PropSetSimple props;
-	enum {numWordLists=KEYWORDSET_MAX+1};
-	WordList *keyWordLists[numWordLists+1];
+	WordList keywords;
+	WordList keywords2;
+	WordList keywords3;
+	WordList keywords4;
+	WordList ppDefinitions;
+	std::map<std::string, std::string> preprocessorDefinitionsStart;
+	LexCPPOptions options;
 public:
 	LexerCPP(bool caseSensitive_) : 
 		caseSensitive(caseSensitive_),
@@ -193,17 +270,14 @@ public:
 		setArithmethicOp(CharacterSet::setNone, "+-/*%"),
 		setRelOp(CharacterSet::setNone, "=!<>"),
 		setLogicalOp(CharacterSet::setNone, "|&") {
-		for (int wl = 0; wl < numWordLists; wl++)
-			keyWordLists[wl] = new WordList;
-		keyWordLists[numWordLists] = 0;
 	}
 	~LexerCPP() {
 	}
 	void Release() {
 		delete this;
 	}
-	void PropSet(const char *key, const char *val);
-	void SetWordList(int n, const char *wl);
+	int PropertySet(const char *key, const char *val);
+	int WordListSet(int n, const char *wl);
 	void Lex(unsigned int startPos, int length, int initStyle, Accessor &styler);
 	void Fold(unsigned int startPos, int length, int initStyle, Accessor &styler);
 
@@ -218,45 +292,69 @@ public:
 	bool EvaluateExpression(const std::string &expr, const std::map<std::string, std::string> &preprocessorDefinitions);
 };
 
-void LexerCPP::PropSet(const char *key, const char *val) {
-	props.Set(key, val);
+int LexerCPP::PropertySet(const char *key, const char *val) {
+	LexCPPOptions optionsNew = options;
+	optionsNew.PropertySet(key, val);
+	if (options != optionsNew) {
+		options = optionsNew;
+		return 0;
+	} else {
+		return -1;
+	}
 }
 
-void LexerCPP::SetWordList(int n, const char *wl) {
-	if (n < numWordLists) {
-		keyWordLists[n]->Clear();
-		keyWordLists[n]->Set(wl);
+int LexerCPP::WordListSet(int n, const char *wl) {
+	WordList *wordListN = 0;
+	switch (n) {
+	case 0:
+		wordListN = &keywords;
+		break;
+	case 1:
+		wordListN = &keywords2;
+		break;
+	case 2:
+		wordListN = &keywords3;
+		break;
+	case 3:
+		wordListN = &keywords4;
+		break;
+	case 4:
+		wordListN = &ppDefinitions;
+		break;
 	}
+	int firstModification = -1;
+	if (wordListN) {
+		WordList wlNew;
+		wlNew.Set(wl);
+		wlNew.InList("x"); // Provoke initialization
+		if (*wordListN != wlNew) {
+			wordListN->Clear();
+			wordListN->Set(wl);
+			wordListN->InList("x");
+			firstModification = 0;
+			if (n == 4) {
+				// Rebuild preprocessorDefinitions
+				preprocessorDefinitionsStart.clear();
+				for (int nDefinition = 0; nDefinition < ppDefinitions.len; nDefinition++) {
+					char *cpDefinition = ppDefinitions.words[nDefinition];
+					char *cpEquals = strchr(cpDefinition, '=');
+					if (cpEquals) {
+						std::string name(cpDefinition, cpEquals - cpDefinition);
+						std::string val(cpEquals+1);
+						preprocessorDefinitionsStart[name] = val;
+					} else {
+						std::string name(cpDefinition);
+						std::string val("1");
+						preprocessorDefinitionsStart[name] = val;
+					}
+				}
+			}
+		}
+	}
+	return firstModification;
 }
 
 void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &styler) {
-
-	WordList &keywords = *keyWordLists[0];
-	WordList &keywords2 = *keyWordLists[1];
-	WordList &keywords3 = *keyWordLists[2];
-	WordList &keywords4 = *keyWordLists[3];
-	WordList &ppDefinitions = *keyWordLists[4];
-
-	std::map<std::string, std::string> preprocessorDefinitions;
-	for (int nDefinition = 0; nDefinition < ppDefinitions.len; nDefinition++) {
-		char *cpDefinition = ppDefinitions.words[nDefinition];
-		char *cpEquals = strchr(cpDefinition, '=');
-		if (cpEquals) {
-			std::string name(cpDefinition, cpEquals - cpDefinition);
-			std::string val(cpEquals+1);
-			preprocessorDefinitions[name] = val;
-		} else {
-			std::string name(cpDefinition);
-			std::string val("1");
-			preprocessorDefinitions[name] = val;
-		}
-	}
-
-
-	// property styling.within.preprocessor
-	//	For C++ code, determines whether all preprocessor code is styled in the preprocessor style (0, the default)
-	//	or only from the initial # to the end of the command word(1).
-	bool stylingWithinPreprocessor = styler.GetPropertyInt("styling.within.preprocessor") != 0;
 
 	CharacterSet setOKBeforeRE(CharacterSet::setNone, "([{=,:;!%^&*|?~+-");
 	CharacterSet setCouldBePostOp(CharacterSet::setNone, "+-");
@@ -266,16 +364,10 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &s
 	CharacterSet setWordStart(CharacterSet::setAlpha, "_", 0x80, true);
 	CharacterSet setWord(CharacterSet::setAlphaNum, "._", 0x80, true);
 
-	// property lexer.cpp.allow.dollars
-	//	Set to 0 to disallow the '$' character in identifiers with the cpp lexer.
-	if (styler.GetPropertyInt("lexer.cpp.allow.dollars", 1) != 0) {
+	if (options.identifiersAllowDollars) {
 		setWordStart.Add('$');
 		setWord.Add('$');
 	}
-
-	// property lexer.cpp.track.preprocessor
-	//	Set to 1 to interpret #if/#else/#endif to grey out code that is not active.
-	const bool trackPreprocessor = styler.GetPropertyInt("lexer.cpp.track.preprocessor", 1) != 0;
 
 	int chPrevNonWhite = ' ';
 	int visibleChars = 0;
@@ -315,7 +407,7 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &s
 
 	bool definitionsChanged = false;
 
-	// Truncate vppd before current line
+	// Truncate ppDefineHistory before current line
 	struct After {
 		int line;
 		After(int line_) : line(line_) {}
@@ -324,13 +416,16 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &s
 		}
 	};
 	
-	std::vector<PPDefinition>::iterator itInvalid = std::find_if(vppd.begin(), vppd.end(), After(lineCurrent-1));
-	if (itInvalid != vppd.end()) {
-		vppd.erase(itInvalid, vppd.end());
+	if (!options.updatePreprocessor)
+		ppDefineHistory.clear();
+	std::vector<PPDefinition>::iterator itInvalid = std::find_if(ppDefineHistory.begin(), ppDefineHistory.end(), After(lineCurrent-1));
+	if (itInvalid != ppDefineHistory.end()) {
+		ppDefineHistory.erase(itInvalid, ppDefineHistory.end());
 		definitionsChanged = true;
 	}
 	
-	for (std::vector<PPDefinition>::iterator itDef = vppd.begin(); itDef != vppd.end(); itDef++) {
+	std::map<std::string, std::string> preprocessorDefinitions = preprocessorDefinitionsStart;
+	for (std::vector<PPDefinition>::iterator itDef = ppDefineHistory.begin(); itDef != ppDefineHistory.end(); itDef++) {
 		preprocessorDefinitions[itDef->key] = itDef->value;
 	}
 
@@ -414,7 +509,7 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &s
 			case SCE_C_PREPROCESSOR:
 				if (sc.atLineStart && !continuationLine) {
 					sc.SetState(SCE_C_DEFAULT|activitySet);
-				} else if (stylingWithinPreprocessor) {
+				} else if (options.stylingWithinPreprocessor) {
 					if (IsASpace(sc.ch)) {
 						sc.SetState(SCE_C_DEFAULT|activitySet);
 					}
@@ -592,7 +687,7 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &s
 				} else if (sc.Match("include")) {
 					isIncludePreprocessor = true;
 				} else {
-					if (trackPreprocessor) {
+					if (options.trackPreprocessor) {
 						if (sc.Match("ifdef") || sc.Match("ifndef")) {
 							bool isIfDef = sc.Match("ifdef");
 							int i = isIfDef ? 5 : 6;
@@ -633,7 +728,7 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &s
 							activitySet = preproc.IsInactive() ? 0x40 : 0;
 							sc.ChangeState(SCE_C_PREPROCESSOR|activitySet);
 						} else if (sc.Match("define")) {
-							if (!preproc.IsInactive()) {
+							if (options.updatePreprocessor && !preproc.IsInactive()) {
 								std::string restOfLine = GetRestOfLine(styler, sc.currentPos + 6, true);
 								if (restOfLine.find(")") == std::string::npos) {	// Don't handle macros with arguments
 									std::vector<std::string> tokens = Tokenize(restOfLine);
@@ -645,7 +740,7 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &s
 											value = tokens[1];
 										}
 										preprocessorDefinitions[key] = value;
-										vppd.push_back(PPDefinition(lineCurrent, key, value));
+										ppDefineHistory.push_back(PPDefinition(lineCurrent, key, value));
 										definitionsChanged = true;
 									}
 								}
@@ -675,23 +770,6 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &s
 
 void LexerCPP::Fold(unsigned int startPos, int length, int initStyle, Accessor &styler) {
 
-	// property fold.comment
-	//	This option enables folding multi-line comments and explicit fold points when using the C++ lexer.
-	//	Explicit fold points allows adding extra folding by placing a //{ comment at the start and a //}
-	//	at the end of a section that should fold.
-	bool foldComment = styler.GetPropertyInt("fold.comment") != 0;
-
-	// property fold.preprocessor
-	//	This option enables folding preprocessor directives when using the C++ lexer.
-	//	Includes C#'s explicit #region and #endregion folding directives.
-	bool foldPreprocessor = styler.GetPropertyInt("fold.preprocessor") != 0;
-
-	bool foldCompact = styler.GetPropertyInt("fold.compact", 1) != 0;
-
-	// property fold.at.else
-	//	This option enables C++ folding on a "} else {" line of an if statement.
-	bool foldAtElse = styler.GetPropertyInt("fold.at.else", 0) != 0;
-
 	unsigned int endPos = startPos + length;
 	int visibleChars = 0;
 	int lineCurrent = styler.GetLine(startPos);
@@ -710,7 +788,7 @@ void LexerCPP::Fold(unsigned int startPos, int length, int initStyle, Accessor &
 		style = styleNext;
 		styleNext = styler.StyleAt(i + 1);
 		bool atEOL = (ch == '\r' && chNext != '\n') || (ch == '\n');
-		if (foldComment && IsStreamCommentStyle(style)) {
+		if (options.foldComment && IsStreamCommentStyle(style)) {
 			if (!IsStreamCommentStyle(stylePrev) && (stylePrev != SCE_C_COMMENTLINEDOC)) {
 				levelNext++;
 			} else if (!IsStreamCommentStyle(styleNext) && (styleNext != SCE_C_COMMENTLINEDOC) && !atEOL) {
@@ -718,7 +796,7 @@ void LexerCPP::Fold(unsigned int startPos, int length, int initStyle, Accessor &
 				levelNext--;
 			}
 		}
-		if (foldComment && (style == SCE_C_COMMENTLINE)) {
+		if (options.foldComment && (style == SCE_C_COMMENTLINE)) {
 			if ((ch == '/') && (chNext == '/')) {
 				char chNext2 = styler.SafeGetCharAt(i + 2);
 				if (chNext2 == '{') {
@@ -728,7 +806,7 @@ void LexerCPP::Fold(unsigned int startPos, int length, int initStyle, Accessor &
 				}
 			}
 		}
-		if (foldPreprocessor && (style == SCE_C_PREPROCESSOR)) {
+		if (options.foldPreprocessor && (style == SCE_C_PREPROCESSOR)) {
 			if (ch == '#') {
 				unsigned int j = i + 1;
 				while ((j < endPos) && IsASpaceOrTab(styler.SafeGetCharAt(j))) {
@@ -757,11 +835,11 @@ void LexerCPP::Fold(unsigned int startPos, int length, int initStyle, Accessor &
 			visibleChars++;
 		if (atEOL || (i == endPos-1)) {
 			int levelUse = levelCurrent;
-			if (foldAtElse) {
+			if (options.foldAtElse) {
 				levelUse = levelMinCurrent;
 			}
 			int lev = levelUse | levelNext << 16;
-			if (visibleChars == 0 && foldCompact)
+			if (visibleChars == 0 && options.foldCompact)
 				lev |= SC_FOLDLEVELWHITEFLAG;
 			if (levelUse < levelNext)
 				lev |= SC_FOLDLEVELHEADERFLAG;
@@ -890,7 +968,7 @@ bool LexerCPP::EvaluateExpression(const std::string &expr, const std::map<std::s
 			std::map<std::string, std::string>::const_iterator it = preprocessorDefinitions.find(word);
 			if (it != preprocessorDefinitions.end()) {
 				tokens.push_back(it->second);
-			} else if ((word[0] >= '0' && word[0] <= '9') || (word == "defined")) {
+			} else if (!word.empty() && ((word[0] >= '0' && word[0] <= '9') || (word == "defined"))) {
 				tokens.push_back(word);
 			}
 			word = "";
