@@ -73,6 +73,16 @@ static char **ArrayFromWordList(char *wordlist, int *len, bool onlyLineEnds = fa
 	return keywords;
 }
 
+bool WordList::operator!=(const WordList &other) const {
+	if (len != other.len)
+		return true;
+	for (int i=0; i<len; i++) {
+		if (strcmp(words[i], other.words[i]) != 0)
+			return true;
+	}
+	return false;
+}
+
 void WordList::Clear() {
 	if (words) {
 		delete []list;
@@ -234,9 +244,9 @@ LexerModule::LexerModule(int language_,
 	}
 }
 
-LexerModule::LexerModule(int language_, 
-	LexerFactoryFunction fnFactory_, 
-	const char *languageName_, 
+LexerModule::LexerModule(int language_,
+	LexerFactoryFunction fnFactory_,
+	const char *languageName_,
 	const char * const wordListDescriptions_[],
 	int styleBits_) :
 	language(language_),
@@ -298,14 +308,28 @@ public:
 	void Release() {
 		delete this;
 	}
-	void PropSet(const char *key, const char *val) {
-		props.Set(key, val);
-	}
-	void SetWordList(int n, const char *wl) {
-		if (n < numWordLists) {
-			keyWordLists[n]->Clear();
-			keyWordLists[n]->Set(wl);
+	int PropertySet(const char *key, const char *val) {
+		const char *valOld = props.Get(key);
+		if (strcmp(val, valOld) != 0) {
+			props.Set(key, val);
+			return 0;
+		} else {
+			return -1;
 		}
+	}
+	int WordListSet(int n, const char *wl) {
+		if (n < numWordLists) {
+			WordList wlNew;
+			wlNew.Set(wl);
+			wlNew.InList("x"); // Provoke initialization
+			if (*keyWordLists[n] != wlNew) {
+				keyWordLists[n]->Clear();
+				keyWordLists[n]->Set(wl);
+				keyWordLists[n]->InList("x");
+				return 0;
+			}
+		}
+		return -1;
 	}
 	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle, Accessor &styler) {
 		module->Lex(startPos, lengthDoc, initStyle, keyWordLists, styler);

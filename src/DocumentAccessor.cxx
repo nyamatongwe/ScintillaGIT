@@ -13,7 +13,6 @@
 #include "Platform.h"
 
 #include "PropSet.h"
-#include "PropSetSimple.h"
 #include "Accessor.h"
 #include "DocumentAccessor.h"
 #include "SplitVector.h"

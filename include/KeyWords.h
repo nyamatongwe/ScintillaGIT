@@ -26,6 +26,7 @@ public:
 		{}
 	~WordList() { Clear(); }
 	operator bool() { return len ? true : false; }
+	bool operator!=(const WordList &other) const;
 	void Clear();
 	void Set(const char *s);
 	bool InList(const char *s);
@@ -35,8 +36,8 @@ public:
 class LexerInstance {
 public:
 	virtual void Release() = 0;
-	virtual void PropSet(const char *key, const char *val) = 0;
-	virtual void SetWordList(int n, const char *wl) = 0;
+	virtual int PropertySet(const char *key, const char *val) = 0;
+	virtual int WordListSet(int n, const char *wl) = 0;
 	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle, Accessor &styler) = 0;
 	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle, Accessor &styler) = 0;
 };

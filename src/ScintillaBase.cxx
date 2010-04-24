@@ -18,6 +18,12 @@
 #include "Scintilla.h"
 #include "PropSet.h"
 #include "PropSetSimple.h"
+#ifdef SCI_LEXER
+#include "SciLexer.h"
+#include "Accessor.h"
+#include "DocumentAccessor.h"
+#include "KeyWords.h"
+#endif
 #include "SplitVector.h"
 #include "Partitioning.h"
 #include "RunStyles.h"
@@ -460,18 +466,11 @@ void ScintillaBase::ButtonDown(Point pt, unsigned int curTime, bool shift, bool 
 
 #ifdef SCI_LEXER
 
-#include "SciLexer.h"
-#include "Accessor.h"
-#include "DocumentAccessor.h"
-#include "KeyWords.h"
-
 class LexState : public LexInterface {
 	const LexerModule *lexCurrent;
 	LexerInstance *instance;
 	void SetLexerModule(const LexerModule *lex);
 	PropSetSimple props;
-	enum {numWordLists=KEYWORDSET_MAX+1};
-	WordList *keyWordLists[numWordLists+1];
 public:
 	Document *pdoc;
 	bool performingStyle;	///< Prevent reentrance
@@ -497,14 +496,9 @@ LexState::LexState(Document *pdoc_) {
 	pdoc = pdoc_;
 	performingStyle = false;
 	lexLanguage = SCLEX_CONTAINER;
-	for (int wl = 0; wl < numWordLists; wl++)
-		keyWordLists[wl] = new WordList;
-	keyWordLists[numWordLists] = 0;
 }
 
 LexState::~LexState() {
-	for (int wl = 0; wl < numWordLists; wl++)
-		delete keyWordLists[wl];
 	if (instance) {
 		instance->Release();
 		instance = 0;
@@ -548,11 +542,11 @@ void LexState::SetLexerLanguage(const char *languageName) {
 }
 
 void LexState::SetWordList(int n, const char *wl) {
-	if (n < numWordLists) {
-		keyWordLists[n]->Clear();
-		keyWordLists[n]->Set(wl);
-		if (instance)
-			instance->SetWordList(n, wl);
+	if (instance) {
+		int firstModification = instance->WordListSet(n, wl);
+		if (firstModification >= 0) {
+			pdoc->ModifiedAt(firstModification);
+		}
 	}
 }
 
@@ -606,8 +600,12 @@ void LexState::Colourise(WindowID wid, int start, int end) {
 
 void LexState::PropSet(const char *key, const char *val) {
 	props.Set(key, val);
-	if (instance)
-		instance->PropSet(key, val);
+	if (instance) {
+		int firstModification = instance->PropertySet(key, val);
+		if (firstModification >= 0) {
+			pdoc->ModifiedAt(firstModification);
+		}
+	}
 }
 
 const char *LexState::PropGet(const char *key) const {
@@ -627,9 +625,8 @@ int LexState::PropGetExpanded(const char *key, char *result) const {
 void ScintillaBase::NotifyStyleToNeeded(int endStyleNeeded) {
 #ifdef SCI_LEXER
 	if (DocumentLexState()->lexLanguage != SCLEX_CONTAINER) {
-		int endStyled = WndProc(SCI_GETENDSTYLED, 0, 0);
-		int lineEndStyled = WndProc(SCI_LINEFROMPOSITION, endStyled, 0);
-		endStyled = WndProc(SCI_POSITIONFROMLINE, lineEndStyled, 0);
+		int lineEndStyled = pdoc->LineFromPosition(pdoc->GetEndStyled());
+		int endStyled = pdoc->LineStart(lineEndStyled);
 		DocumentLexState()->Colourise(wMain.GetID(), endStyled, endStyleNeeded);
 		return;
 	}

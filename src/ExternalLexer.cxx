@@ -105,6 +105,16 @@ void ExternalLexerModule::Fold(unsigned int startPos, int lengthDoc, int initSty
 void ExternalLexerModule::SetExternal(ExtLexerFunction fLexer, ExtFoldFunction fFolder, int index) {
 	fneLexer = fLexer;
 	fneFolder = fFolder;
+	fneFactory = 0;
+	fnFactory = 0;
+	externalLanguage = index;
+}
+
+void ExternalLexerModule::SetExternal(GetLexerFactoryFunction fFactory, int index) {
+	fneLexer = 0;
+	fneFolder = 0;
+	fneFactory = fFactory;
+	fnFactory = fFactory(index);
 	externalLanguage = index;
 }
 
@@ -132,8 +142,9 @@ LexerLibrary::LexerLibrary(const char *ModuleName) {
 
 			// Find functions in the DLL
 			GetLexerNameFn GetLexerName = (GetLexerNameFn)(sptr_t)lib->FindFunction("GetLexerName");
-			ExtLexerFunction Lexer = (ExtLexerFunction)(sptr_t)lib->FindFunction("Lex");
-			ExtFoldFunction Folder = (ExtFoldFunction)(sptr_t)lib->FindFunction("Fold");
+			ExtLexerFunction fnLexer = (ExtLexerFunction)(sptr_t)lib->FindFunction("Lex");
+			ExtFoldFunction fnFolder = (ExtFoldFunction)(sptr_t)lib->FindFunction("Fold");
+			GetLexerFactoryFunction fnFactory = (GetLexerFactoryFunction)(sptr_t)lib->FindFunction("GetLexerFactory");
 
 			// Assign a buffer for the lexer name.
 			char lexname[100];
@@ -159,7 +170,10 @@ LexerLibrary::LexerLibrary(const char *ModuleName) {
 
 				// The external lexer needs to know how to call into its DLL to
 				// do its lexing and folding, we tell it here. Folder may be null.
-				lex->SetExternal(Lexer, Folder, i);
+				if (fnFactory)
+					lex->SetExternal(fnFactory, i);
+				else
+					lex->SetExternal(fnLexer, fnFolder, i);
 			}
 		}
 	}

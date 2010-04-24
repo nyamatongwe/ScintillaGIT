@@ -26,6 +26,7 @@ typedef void (EXT_LEXER_DECL *ExtFoldFunction)(unsigned int lexer, unsigned int 
 typedef void*(EXT_LEXER_DECL *GetLexerFunction)(unsigned int Index);
 typedef int (EXT_LEXER_DECL *GetLexerCountFn)();
 typedef void (EXT_LEXER_DECL *GetLexerNameFn)(unsigned int Index, char *name, int buflength);
+typedef LexerFactoryFunction(EXT_LEXER_DECL *GetLexerFactoryFunction)(unsigned int Index);
 
 //class DynamicLibrary;
 
@@ -34,6 +35,7 @@ class ExternalLexerModule : protected LexerModule {
 protected:
 	ExtLexerFunction fneLexer;
 	ExtFoldFunction fneFolder;
+	GetLexerFactoryFunction fneFactory;
 	int externalLanguage;
 	char name[100];
 public:
@@ -48,6 +50,7 @@ public:
 	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle,
 					WordList *keywordlists[], Accessor &styler) const;
 	virtual void SetExternal(ExtLexerFunction fLexer, ExtFoldFunction fFolder, int index);
+	virtual void SetExternal(GetLexerFactoryFunction fFactory, int index);
 };
 
 /// LexerMinder points to an ExternalLexerModule - so we don't leak them.
