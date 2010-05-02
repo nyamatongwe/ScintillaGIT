@@ -212,6 +212,8 @@ public:
 	int LenChar(int pos);
 	bool InGoodUTF8(int pos, int &start, int &end);
 	int MovePositionOutsideChar(int pos, int moveDir, bool checkLineEnd=true);
+	int CodePage() const;
+	bool IsDBCSLeadByte(char ch) const;
 
 	// Gateways to modifying document
 	void ModifiedAt(int pos);
@@ -252,10 +254,10 @@ public:
 	void DelCharBack(int pos);
 
 	char CharAt(int position) { return cb.CharAt(position); }
-	void GetCharRange(char *buffer, int position, int lengthRetrieve) {
+	void GetCharRange(char *buffer, int position, int lengthRetrieve) const {
 		cb.GetCharRange(buffer, position, lengthRetrieve);
 	}
-	char StyleAt(int position) { return cb.StyleAt(position); }
+	char StyleAt(int position) const { return cb.StyleAt(position); }
 	int GetMark(int line);
 	int AddMark(int line, int markerNum);
 	void AddMarkSet(int line, int valueSet);
@@ -270,7 +272,7 @@ public:
 	int VCHomePosition(int position) const;
 
 	int SetLevel(int line, int level);
-	int GetLevel(int line);
+	int GetLevel(int line) const;
 	void ClearLevels();
 	int GetLastChild(int lineParent, int level=-1);
 	int GetFoldParent(int line);
@@ -304,7 +306,7 @@ public:
 	void DecorationFillRange(int position, int value, int fillLength);
 
 	int SetLineState(int line, int state);
-	int GetLineState(int line);
+	int GetLineState(int line) const;
 	int GetMaxLineState();
 	void ChangeLexerState(int start, int end);
 

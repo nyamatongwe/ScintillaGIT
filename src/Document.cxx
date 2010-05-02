@@ -31,6 +31,7 @@
 #include "PerLine.h"
 #include "CharClassify.h"
 #include "Decoration.h"
+#include "Accessor.h"
 #include "Document.h"
 #include "RESearch.h"
 #include "UniConversion.h"
@@ -262,7 +263,7 @@ int Document::SetLevel(int line, int level) {
 	return prev;
 }
 
-int Document::GetLevel(int line) {
+int Document::GetLevel(int line) const {
 	return static_cast<LineLevels *>(perLineData[ldLevels])->GetLevel(line);
 }
 
@@ -1378,7 +1379,7 @@ int Document::SetLineState(int line, int state) {
 	return statePrevious;
 }
 
-int Document::GetLineState(int line) {
+int Document::GetLineState(int line) const {
 	return static_cast<LineState *>(perLineData[ldState])->GetLineState(line);
 }
 
