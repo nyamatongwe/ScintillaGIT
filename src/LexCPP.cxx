@@ -354,6 +354,15 @@ int LexerCPP::WordListSet(int n, const char *wl) {
 	return firstModification;
 }
 
+// Truncate ppDefineHistory before current line
+struct After {
+	int line;
+	After(int line_) : line(line_) {}
+	bool operator() (PPDefinition &p) const {
+		return p.line > line;
+	}
+};
+
 void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &styler) {
 
 	CharacterSet setOKBeforeRE(CharacterSet::setNone, "([{=,:;!%^&*|?~+-");
@@ -407,15 +416,6 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &s
 
 	bool definitionsChanged = false;
 
-	// Truncate ppDefineHistory before current line
-	struct After {
-		int line;
-		After(int line_) : line(line_) {}
-		bool operator() (PPDefinition &p) const {
-			return p.line > line;
-		}
-	};
-	
 	if (!options.updatePreprocessor)
 		ppDefineHistory.clear();
 	std::vector<PPDefinition>::iterator itInvalid = std::find_if(ppDefineHistory.begin(), ppDefineHistory.end(), After(lineCurrent-1));
