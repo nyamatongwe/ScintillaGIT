@@ -64,55 +64,7 @@ void DeleteWLStrings(char *strs[]) {
 	delete [] strs;
 }
 
-void ExternalLexerModule::Lex(unsigned int startPos, int lengthDoc, int initStyle,
-                              WordList *keywordlists[], Accessor &styler) const {
-	if (!fneLexer)
-		return ;
-
-	char **kwds = WordListsToStrings(keywordlists);
-	char *ps = styler.GetProperties();
-
-	// The accessor passed in is always a DocumentAccessor so this cast and the subsequent
-	// access will work. Can not use the stricter dynamic_cast as that requires RTTI.
-	DocumentAccessor &da = static_cast<DocumentAccessor &>(styler);
-	WindowID wID = da.GetWindow();
-
-	fneLexer(externalLanguage, startPos, lengthDoc, initStyle, kwds, wID, ps);
-
-	delete ps;
-	DeleteWLStrings(kwds);
-}
-
-void ExternalLexerModule::Fold(unsigned int startPos, int lengthDoc, int initStyle,
-                               WordList *keywordlists[], Accessor &styler) const {
-	if (!fneFolder)
-		return ;
-
-	char **kwds = WordListsToStrings(keywordlists);
-	char *ps = styler.GetProperties();
-
-	// The accessor passed in is always a DocumentAccessor so this cast and the subsequent
-	// access will work. Can not use the stricter dynamic_cast as that requires RTTI.
-	DocumentAccessor &da = static_cast<DocumentAccessor &>(styler);
-	WindowID wID = da.GetWindow();
-
-	fneFolder(externalLanguage, startPos, lengthDoc, initStyle, kwds, wID, ps);
-
-	delete ps;
-	DeleteWLStrings(kwds);
-}
-
-void ExternalLexerModule::SetExternal(ExtLexerFunction fLexer, ExtFoldFunction fFolder, int index) {
-	fneLexer = fLexer;
-	fneFolder = fFolder;
-	fneFactory = 0;
-	fnFactory = 0;
-	externalLanguage = index;
-}
-
 void ExternalLexerModule::SetExternal(GetLexerFactoryFunction fFactory, int index) {
-	fneLexer = 0;
-	fneFolder = 0;
 	fneFactory = fFactory;
 	fnFactory = fFactory(index);
 	externalLanguage = index;
@@ -142,8 +94,8 @@ LexerLibrary::LexerLibrary(const char *ModuleName) {
 
 			// Find functions in the DLL
 			GetLexerNameFn GetLexerName = (GetLexerNameFn)(sptr_t)lib->FindFunction("GetLexerName");
-			ExtLexerFunction fnLexer = (ExtLexerFunction)(sptr_t)lib->FindFunction("Lex");
-			ExtFoldFunction fnFolder = (ExtFoldFunction)(sptr_t)lib->FindFunction("Fold");
+			//ExtLexerFunction fnLexer = (ExtLexerFunction)(sptr_t)lib->FindFunction("Lex");
+			//ExtFoldFunction fnFolder = (ExtFoldFunction)(sptr_t)lib->FindFunction("Fold");
 			GetLexerFactoryFunction fnFactory = (GetLexerFactoryFunction)(sptr_t)lib->FindFunction("GetLexerFactory");
 
 			// Assign a buffer for the lexer name.
@@ -169,11 +121,8 @@ LexerLibrary::LexerLibrary(const char *ModuleName) {
 				}
 
 				// The external lexer needs to know how to call into its DLL to
-				// do its lexing and folding, we tell it here. Folder may be null.
-				if (fnFactory)
-					lex->SetExternal(fnFactory, i);
-				else
-					lex->SetExternal(fnLexer, fnFolder, i);
+				// do its lexing and folding, we tell it here.
+				lex->SetExternal(fnFactory, i);
 			}
 		}
 	}

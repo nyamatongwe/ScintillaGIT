@@ -133,15 +133,24 @@ public:
 	void StandardASCII();
 };
 
+class Document;
+
 class LexInterface {
+protected:
+	Document *pdoc;
+	LexerInstance *instance;
+	bool performingStyle;	///< Prevent reentrance
 public:
+	LexInterface(Document *pdoc_) : pdoc(pdoc_), instance(0), performingStyle(false) {
+	}
 	virtual ~LexInterface() {
 	}
+	void Colourise(int start, int end);
 };
 
 /**
  */
-class Document : PerLine {
+class Document : PerLine, public DocumentAccess {
 
 public:
 	/** Used to pair watcher pointer with user data. */
@@ -205,6 +214,10 @@ public:
 	virtual void Init();
 	virtual void InsertLine(int line);
 	virtual void RemoveLine(int line);
+
+	int Version() const {
+		return davOriginal;
+	}
 
 	int LineFromPosition(int pos) const;
 	int ClampPositionIntoDocument(int pos);
@@ -303,6 +316,9 @@ public:
 	void LexerChanged();
 	int GetStyleClock() { return styleClock; }
 	void IncrementStyleClock();
+	void DecorationSetCurrentIndicator(int indicator) {
+		decorations.SetCurrentIndicator(indicator);
+	}
 	void DecorationFillRange(int position, int value, int fillLength);
 
 	int SetLineState(int line, int state);

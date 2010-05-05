@@ -14,7 +14,7 @@ namespace Scintilla {
 // DBCS treated specially as the second character can be < 0x80 and hence
 // syntactically significant. UTF-8 avoids this as all trail bytes are >= 0x80
 class StyleContext {
-	Accessor &styler;
+	LexAccessor &styler;
 	unsigned int endPos;
 	StyleContext &operator=(const StyleContext &);
 	void GetNextChar(unsigned int pos) {
@@ -41,7 +41,7 @@ public:
 	int chNext;
 
 	StyleContext(unsigned int startPos, unsigned int length,
-                        int initStyle, Accessor &styler_, char chMask=31) :
+                        int initStyle, LexAccessor &styler_, char chMask=31) :
 		styler(styler_),
 		endPos(startPos + length),
 		currentPos(startPos),

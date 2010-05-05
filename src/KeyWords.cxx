@@ -220,6 +220,63 @@ bool WordList::InListAbbreviated(const char *s, const char marker) {
 	return false;
 }
 
+Accessor::Accessor(DocumentAccess *pAccess_, PropertyGet *pprops_) : LexAccessor(pAccess_), pprops(pprops_) {
+}
+
+int Accessor::GetPropertyInt(const char *key, int defaultValue) {
+	return pprops->GetInt(key, defaultValue);
+}
+
+char *Accessor::GetProperties() {
+	return pprops->ToString();
+}
+
+int Accessor::IndentAmount(int line, int *flags, PFNIsCommentLeader pfnIsCommentLeader) {
+	int end = Length();
+	int spaceFlags = 0;
+
+	// Determines the indentation level of the current line and also checks for consistent
+	// indentation compared to the previous line.
+	// Indentation is judged consistent when the indentation whitespace of each line lines
+	// the same or the indentation of one line is a prefix of the other.
+
+	int pos = LineStart(line);
+	char ch = (*this)[pos];
+	int indent = 0;
+	bool inPrevPrefix = line > 0;
+	int posPrev = inPrevPrefix ? LineStart(line-1) : 0;
+	while ((ch == ' ' || ch == '\t') && (pos < end)) {
+		if (inPrevPrefix) {
+			char chPrev = (*this)[posPrev++];
+			if (chPrev == ' ' || chPrev == '\t') {
+				if (chPrev != ch)
+					spaceFlags |= wsInconsistent;
+			} else {
+				inPrevPrefix = false;
+			}
+		}
+		if (ch == ' ') {
+			spaceFlags |= wsSpace;
+			indent++;
+		} else {	// Tab
+			spaceFlags |= wsTab;
+			if (spaceFlags & wsSpace)
+				spaceFlags |= wsSpaceTab;
+			indent = (indent / 8 + 1) * 8;
+		}
+		ch = (*this)[++pos];
+	}
+
+	*flags = spaceFlags;
+	indent += SC_FOLDLEVELBASE;
+	// if completely empty line or the start of a comment...
+	if ((ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') ||
+			(pfnIsCommentLeader && (*pfnIsCommentLeader)(*this, pos, end-pos)))
+		return indent | SC_FOLDLEVELWHITEFLAG;
+	else
+		return indent;
+}
+
 const LexerModule *LexerModule::base = 0;
 int LexerModule::nextLanguage = SCLEX_AUTOMATIC+1;
 
@@ -308,6 +365,9 @@ public:
 	void Release() {
 		delete this;
 	}
+	int Version() const {
+		return livOriginal;
+	}
 	int PropertySet(const char *key, const char *val) {
 		const char *valOld = props.Get(key);
 		if (strcmp(val, valOld) != 0) {
@@ -331,11 +391,15 @@ public:
 		}
 		return -1;
 	}
-	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle, Accessor &styler) {
-		module->Lex(startPos, lengthDoc, initStyle, keyWordLists, styler);
+	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle, DocumentAccess *pAccess) {
+		Accessor astyler(pAccess, &props);
+		module->Lex(startPos, lengthDoc, initStyle, keyWordLists, astyler);
+		astyler.Flush();
 	}
-	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle, Accessor &styler) {
-		module->Fold(startPos, lengthDoc, initStyle, keyWordLists, styler);
+	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle, DocumentAccess *pAccess) {
+		Accessor astyler(pAccess, &props);
+		module->Fold(startPos, lengthDoc, initStyle, keyWordLists, astyler);
+		astyler.Flush();
 	}
 };
 

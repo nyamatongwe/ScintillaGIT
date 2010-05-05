@@ -18,23 +18,14 @@
 namespace Scintilla {
 #endif
 
-// External Lexer function definitions...
-typedef void (EXT_LEXER_DECL *ExtLexerFunction)(unsigned int lexer, unsigned int startPos, int length, int initStyle,
-                  char *words[], WindowID window, char *props);
-typedef void (EXT_LEXER_DECL *ExtFoldFunction)(unsigned int lexer, unsigned int startPos, int length, int initStyle,
-                  char *words[], WindowID window, char *props);
 typedef void*(EXT_LEXER_DECL *GetLexerFunction)(unsigned int Index);
 typedef int (EXT_LEXER_DECL *GetLexerCountFn)();
 typedef void (EXT_LEXER_DECL *GetLexerNameFn)(unsigned int Index, char *name, int buflength);
 typedef LexerFactoryFunction(EXT_LEXER_DECL *GetLexerFactoryFunction)(unsigned int Index);
 
-//class DynamicLibrary;
-
 /// Sub-class of LexerModule to use an external lexer.
 class ExternalLexerModule : protected LexerModule {
 protected:
-	ExtLexerFunction fneLexer;
-	ExtFoldFunction fneFolder;
 	GetLexerFactoryFunction fneFactory;
 	int externalLanguage;
 	char name[100];
@@ -44,12 +35,7 @@ public:
 		strncpy(name, languageName_, sizeof(name));
 		name[sizeof(name)-1] = '\0';
 		languageName = name;
-	};
-	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle,
-					WordList *keywordlists[], Accessor &styler) const;
-	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle,
-					WordList *keywordlists[], Accessor &styler) const;
-	virtual void SetExternal(ExtLexerFunction fLexer, ExtFoldFunction fFolder, int index);
+	}
 	virtual void SetExternal(GetLexerFactoryFunction fFactory, int index);
 };
 

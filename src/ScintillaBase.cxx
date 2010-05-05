@@ -468,12 +468,9 @@ void ScintillaBase::ButtonDown(Point pt, unsigned int curTime, bool shift, bool 
 
 class LexState : public LexInterface {
 	const LexerModule *lexCurrent;
-	LexerInstance *instance;
 	void SetLexerModule(const LexerModule *lex);
 	PropSetSimple props;
 public:
-	Document *pdoc;
-	bool performingStyle;	///< Prevent reentrance
 	int lexLanguage;
 
 	LexState(Document *pdoc_);
@@ -483,17 +480,14 @@ public:
 	void SetWordList(int n, const char *wl);
 	int GetStyleBitsNeeded() const;
 	const char *GetName() const;
-	void Colourise(WindowID wid, int start, int end);
 	void PropSet(const char *key, const char *val);
 	const char *PropGet(const char *key) const;
 	int PropGetInt(const char *key, int defaultValue=0) const;
 	int PropGetExpanded(const char *key, char *result) const;
 };
 
-LexState::LexState(Document *pdoc_) {
+LexState::LexState(Document *pdoc_) : LexInterface(pdoc_) {
 	lexCurrent = 0;
-	instance = 0;
-	pdoc = pdoc_;
 	performingStyle = false;
 	lexLanguage = SCLEX_CONTAINER;
 }
@@ -558,46 +552,6 @@ const char *LexState::GetName() const {
 	return lexCurrent ? lexCurrent->languageName : "";
 }
 
-void LexState::Colourise(WindowID wid, int start, int end) {
-	ElapsedTime et;
-	if (!performingStyle) {
-		// Protect against reentrance, which may occur, for example, when
-		// fold points are discovered while performing styling and the folding
-		// code looks for child lines which may trigger styling.
-		performingStyle = true;
-
-		int lengthDoc = pdoc->Length();
-		if (end == -1)
-			end = lengthDoc;
-		int len = end - start;
-
-		PLATFORM_ASSERT(len >= 0);
-		PLATFORM_ASSERT(start + len <= lengthDoc);
-
-		//WindowAccessor styler(wMain.GetID(), props);
-		DocumentAccessor styler(pdoc, props, wid);
-
-		int styleStart = 0;
-		if (start > 0)
-			styleStart = styler.StyleAt(start - 1) & pdoc->stylingBitsMask;
-		styler.SetCodePage(pdoc->dbcsCodePage);
-
-		if (len > 0) {
-			if (instance) {
-				instance->Lex(start, len, styleStart, styler);
-				styler.Flush();
-				if (styler.GetPropertyInt("fold")) {
-					instance->Fold(start, len, styleStart, styler);
-					styler.Flush();
-				}
-			}
-		}
-
-		performingStyle = false;
-	}
-	Platform::DebugPrintf("Style:%d %9.6g \n", performingStyle, et.Duration());
-}
-
 void LexState::PropSet(const char *key, const char *val) {
 	props.Set(key, val);
 	if (instance) {
@@ -627,7 +581,7 @@ void ScintillaBase::NotifyStyleToNeeded(int endStyleNeeded) {
 	if (DocumentLexState()->lexLanguage != SCLEX_CONTAINER) {
 		int lineEndStyled = pdoc->LineFromPosition(pdoc->GetEndStyled());
 		int endStyled = pdoc->LineStart(lineEndStyled);
-		DocumentLexState()->Colourise(wMain.GetID(), endStyled, endStyleNeeded);
+		DocumentLexState()->Colourise(endStyled, endStyleNeeded);
 		return;
 	}
 #endif
@@ -814,7 +768,7 @@ sptr_t ScintillaBase::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lPara
 			pdoc->ModifiedAt(wParam);
 			NotifyStyleToNeeded((lParam == -1) ? pdoc->Length() : lParam);
 		} else {
-			DocumentLexState()->Colourise(wMain.GetID(), wParam, lParam);
+			DocumentLexState()->Colourise(wParam, lParam);
 		}
 		Redraw();
 		break;

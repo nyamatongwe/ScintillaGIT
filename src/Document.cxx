@@ -61,6 +61,36 @@ static inline bool IsUpperCase(char ch) {
 	return isascii(ch) && isupper(ch);
 }
 
+void LexInterface::Colourise(int start, int end) {
+	ElapsedTime et;
+	if (pdoc && instance && !performingStyle) {
+		// Protect against reentrance, which may occur, for example, when
+		// fold points are discovered while performing styling and the folding
+		// code looks for child lines which may trigger styling.
+		performingStyle = true;
+
+		int lengthDoc = pdoc->Length();
+		if (end == -1)
+			end = lengthDoc;
+		int len = end - start;
+
+		PLATFORM_ASSERT(len >= 0);
+		PLATFORM_ASSERT(start + len <= lengthDoc);
+
+		int styleStart = 0;
+		if (start > 0)
+			styleStart = pdoc->StyleAt(start - 1) & pdoc->stylingBitsMask;
+
+		if (len > 0) {
+			instance->Lex(start, len, styleStart, pdoc);
+			instance->Fold(start, len, styleStart, pdoc);
+		}
+
+		performingStyle = false;
+	}
+	Platform::DebugPrintf("Style:%d %9.6g \n", performingStyle, et.Duration());
+}
+
 Document::Document() {
 	refCount = 0;
 #ifdef unix
@@ -475,6 +505,14 @@ int Document::MovePositionOutsideChar(int pos, int moveDir, bool checkLineEnd) {
 	}
 
 	return pos;
+}
+
+int Document::CodePage() const {
+	return dbcsCodePage;
+}
+
+bool Document::IsDBCSLeadByte(char ch) const {
+	return Platform::IsDBCSLeadByte(dbcsCodePage, ch);
 }
 
 void Document::ModifiedAt(int pos) {
@@ -1356,9 +1394,15 @@ bool Document::SetStyles(int length, const char *styles) {
 void Document::EnsureStyledTo(int pos) {
 	if ((enteredStyling == 0) && (pos > GetEndStyled())) {
 		IncrementStyleClock();
-		// Ask the watchers to style, and stop as soon as one responds.
-		for (int i = 0; pos > GetEndStyled() && i < lenWatchers; i++) {
-			watchers[i].watcher->NotifyStyleNeeded(this, watchers[i].userData, pos);
+		if (pli) {
+			int lineEndStyled = LineFromPosition(GetEndStyled());
+			int endStyled = LineStart(lineEndStyled);
+			pli->Colourise(endStyled, pos);
+		} else {
+			// Ask the watchers to style, and stop as soon as one responds.
+			for (int i = 0; pos > GetEndStyled() && i < lenWatchers; i++) {
+				watchers[i].watcher->NotifyStyleNeeded(this, watchers[i].userData, pos);
+			}
 		}
 	}
 }

@@ -2,20 +2,55 @@
 /** @file Accessor.h
  ** Rapid easy access to contents of a Scintilla.
  **/
-// Copyright 1998-2001 by Neil Hodgson <neilh@scintilla.org>
+// Copyright 1998-2010 by Neil Hodgson <neilh@scintilla.org>
 // The License.txt file describes the conditions under which this software may be distributed.
 
-enum { wsSpace = 1, wsTab = 2, wsSpaceTab = 4, wsInconsistent=8};
+#ifndef ACCESSOR_H
+#define ACCESSOR_H
 
-class Accessor;
+#ifdef SCI_NAMESPACE
+namespace Scintilla {
+#endif
 
-typedef bool (*PFNIsCommentLeader)(Accessor &styler, int pos, int len);
+enum { davOriginal=0 };
 
-/**
- * Interface to data in a Scintilla.
- */
-class Accessor {
-protected:
+class DocumentAccess {
+public:
+	virtual int Version() const = 0;
+	virtual int Length() const = 0;
+	virtual void GetCharRange(char *buffer, int position, int lengthRetrieve) const = 0;
+	virtual char StyleAt(int position) const = 0;
+	virtual int LineFromPosition(int position) const = 0;
+	virtual int LineStart(int line) const = 0;
+	virtual int GetLevel(int line) const = 0;
+	virtual int SetLevel(int line, int level) = 0;
+	virtual int GetLineState(int line) const = 0;
+	virtual int SetLineState(int line, int state) = 0;
+	virtual void StartStyling(int position, char mask) = 0;
+	virtual bool SetStyleFor(int length, char style) = 0;
+	virtual bool SetStyles(int length, const char *styles) = 0;
+	virtual void DecorationSetCurrentIndicator(int indicator) = 0;
+	virtual void DecorationFillRange(int position, int value, int fillLength) = 0;
+	virtual void ChangeLexerState(int start, int end) = 0;
+	virtual int CodePage() const = 0;	
+	virtual bool IsDBCSLeadByte(char ch) const = 0;
+};
+
+enum { livOriginal=0 };
+
+class LexerInstance {
+public:
+	virtual int Version() const = 0;
+	virtual void Release() = 0;
+	virtual int PropertySet(const char *key, const char *val) = 0;
+	virtual int WordListSet(int n, const char *wl) = 0;
+	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle, DocumentAccess *pAccess) = 0;
+	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle, DocumentAccess *pAccess) = 0;
+};
+
+class LexAccessor {
+private:
+	DocumentAccess *pAccess;
 	enum {extremePosition=0x7FFFFFFF};
 	/** @a bufferSize is a trade off between time taken to copy the characters
 	 * and retrieval overhead.
@@ -26,13 +61,36 @@ protected:
 	int startPos;
 	int endPos;
 	int codePage;	
+	int lenDoc;
+	int mask;
+	char styleBuf[bufferSize];
+	int validLen;
+	char chFlags;
+	char chWhile;
+	unsigned int startSeg;
+	int startPosStyling;
 
-	virtual bool InternalIsLeadByte(char ch)=0;
-	virtual void Fill(int position)=0;
+	void Fill(int position) {
+		startPos = position - slopSize;
+		if (startPos + bufferSize > lenDoc)
+			startPos = lenDoc - bufferSize;
+		if (startPos < 0)
+			startPos = 0;
+		endPos = startPos + bufferSize;
+		if (endPos > lenDoc)
+			endPos = lenDoc;
+
+		pAccess->GetCharRange(buf, startPos, endPos-startPos);
+		buf[endPos-startPos] = '\0';
+	}
 
 public:
-	Accessor() : startPos(extremePosition), endPos(0), codePage(0) {}
-	virtual ~Accessor() {}
+	LexAccessor(DocumentAccess *pAccess_) : 
+		pAccess(pAccess_), startPos(extremePosition), endPos(0), 
+		codePage(pAccess->CodePage()), lenDoc(pAccess->Length()), 
+		mask(127), validLen(0), chFlags(0), chWhile(0), 
+		startSeg(0), startPosStyling(0) {
+	}
 	char operator[](int position) {
 		if (position < startPos || position >= endPos) {
 			Fill(position);
@@ -51,31 +109,103 @@ public:
 		return buf[position - startPos];
 	}
 	bool IsLeadByte(char ch) {
-		return codePage && InternalIsLeadByte(ch);
+		return pAccess->IsDBCSLeadByte(ch);
 	}
-	void SetCodePage(int codePage_) { codePage = codePage_; }
 
-	virtual bool Match(int pos, const char *s)=0;
-	virtual char StyleAt(int position)=0;
-	virtual int GetLine(int position)=0;
-	virtual int LineStart(int line)=0;
-	virtual int LevelAt(int line)=0;
-	virtual int Length()=0;
-	virtual void Flush()=0;
-	virtual int GetLineState(int line)=0;
-	virtual int SetLineState(int line, int state)=0;
-	virtual int GetPropertyInt(const char *key, int defaultValue=0)=0;
-	virtual char *GetProperties()=0;
-
+	bool Match(int pos, const char *s) {
+		for (int i=0; *s; i++) {
+			if (*s != SafeGetCharAt(pos+i))
+				return false;
+			s++;
+		}
+		return true;
+	}
+	char StyleAt(int position) {
+		return static_cast<char>(pAccess->StyleAt(position) & mask);
+	}
+	int GetLine(int position) {
+		return pAccess->LineFromPosition(position);
+	}
+	int LineStart(int line) {
+		return pAccess->LineStart(line);
+	}
+	int LevelAt(int line) {
+		return pAccess->GetLevel(line);
+	}
+	int Length() {
+		return lenDoc;
+	}
+	void Flush() {
+		startPos = extremePosition;
+		if (validLen > 0) {
+			pAccess->SetStyles(validLen, styleBuf);
+			startPosStyling += validLen;
+			validLen = 0;
+		}
+	}
+	int GetLineState(int line) {
+		return pAccess->GetLineState(line);
+	}
+	int SetLineState(int line, int state) {
+		return pAccess->SetLineState(line, state);
+	}
 	// Style setting
-	virtual void StartAt(unsigned int start, char chMask=31)=0;
-	virtual void SetFlags(char chFlags_, char chWhile_)=0;
-	virtual unsigned int GetStartSegment()=0;
-	virtual void StartSegment(unsigned int pos)=0;
-	virtual void ColourTo(unsigned int pos, int chAttr)=0;
-	virtual void SetLevel(int line, int level)=0;
-	virtual int IndentAmount(int line, int *flags, PFNIsCommentLeader pfnIsCommentLeader = 0)=0;
-	virtual void IndicatorFill(int start, int end, int indicator, int value)=0;
+	void StartAt(unsigned int start, char chMask=31) {
+		// Store the mask specified for use with StyleAt.
+		mask = chMask;
+		pAccess->StartStyling(start, chMask);
+		startPosStyling = start;
+	}
+	void SetFlags(char chFlags_, char chWhile_) {
+		chFlags = chFlags_; 
+		chWhile = chWhile_; 
+	}
+	unsigned int GetStartSegment() {
+		return startSeg;
+	}
+	void StartSegment(unsigned int pos) {
+		startSeg = pos;
+	}
+	void ColourTo(unsigned int pos, int chAttr) {
+		// Only perform styling if non empty range
+		if (pos != startSeg - 1) {
+			PLATFORM_ASSERT(pos >= startSeg);
+			if (pos < startSeg) {
+				return;
+			}
 
-	virtual void ChangeLexerState(int start, int end)=0;
+			if (validLen + (pos - startSeg + 1) >= bufferSize)
+				Flush();
+			if (validLen + (pos - startSeg + 1) >= bufferSize) {
+				// Too big for buffer so send directly
+				pAccess->SetStyleFor(pos - startSeg + 1, static_cast<char>(chAttr));
+			} else {
+				if (chAttr != chWhile)
+					chFlags = 0;
+				chAttr |= chFlags;
+				for (unsigned int i = startSeg; i <= pos; i++) {
+					PLATFORM_ASSERT((startPosStyling + validLen) < Length());
+					styleBuf[validLen++] = static_cast<char>(chAttr);
+				}
+			}
+		}
+		startSeg = pos+1;
+	}
+	void SetLevel(int line, int level) {
+		pAccess->SetLevel(line, level);
+	}
+	void IndicatorFill(int start, int end, int indicator, int value) {
+		pAccess->DecorationSetCurrentIndicator(indicator);
+		pAccess->DecorationFillRange(start, value, end - start);
+	}
+
+	void ChangeLexerState(int start, int end) {
+		pAccess->ChangeLexerState(start, end);
+	}
 };
+
+#ifdef SCI_NAMESPACE
+}
+#endif
+
+#endif

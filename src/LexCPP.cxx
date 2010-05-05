@@ -49,7 +49,7 @@ static bool IsSpaceEquiv(int state) {
 // a = b+++/ptn/...
 // Putting a space between the '++' post-inc operator and the '+' binary op
 // fixes this, and is highly recommended for readability anyway.
-static bool FollowsPostfixOperator(StyleContext &sc, Accessor &styler) {
+static bool FollowsPostfixOperator(StyleContext &sc, LexAccessor &styler) {
 	int pos = (int) sc.currentPos;
 	while (--pos > 0) {
 		char ch = styler[pos];
@@ -60,7 +60,7 @@ static bool FollowsPostfixOperator(StyleContext &sc, Accessor &styler) {
 	return false;
 }
 
-static std::string GetRestOfLine(Accessor &styler, int start, bool allowSpace) {
+static std::string GetRestOfLine(LexAccessor &styler, int start, bool allowSpace) {
 	std::string restOfLine;
 	int i =0;
 	char ch = styler.SafeGetCharAt(start + i, '\n');
@@ -276,10 +276,13 @@ public:
 	void Release() {
 		delete this;
 	}
+	int Version() const {
+		return livOriginal;
+	}
 	int PropertySet(const char *key, const char *val);
 	int WordListSet(int n, const char *wl);
-	void Lex(unsigned int startPos, int length, int initStyle, Accessor &styler);
-	void Fold(unsigned int startPos, int length, int initStyle, Accessor &styler);
+	void Lex(unsigned int startPos, int length, int initStyle, DocumentAccess *pAccess);
+	void Fold(unsigned int startPos, int length, int initStyle, DocumentAccess *pAccess);
 
 	static LexerInstance *LexerFactoryCPP() {
 		return new LexerCPP(true);
@@ -354,7 +357,9 @@ int LexerCPP::WordListSet(int n, const char *wl) {
 	return firstModification;
 }
 
-void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &styler) {
+void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, DocumentAccess *pAccess) {
+
+	LexAccessor styler(pAccess);
 
 	CharacterSet setOKBeforeRE(CharacterSet::setNone, "([{=,:;!%^&*|?~+-");
 	CharacterSet setCouldBePostOp(CharacterSet::setNone, "+-");
@@ -762,13 +767,16 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, Accessor &s
 	if (definitionsChanged)
 		styler.ChangeLexerState(startPos, startPos + length);
 	sc.Complete();
+	styler.Flush();
 }
 
 // Store both the current line's fold level and the next lines in the
 // level store to make it easy to pick up with each increment
 // and to make it possible to fiddle the current level for "} else {".
 
-void LexerCPP::Fold(unsigned int startPos, int length, int initStyle, Accessor &styler) {
+void LexerCPP::Fold(unsigned int startPos, int length, int initStyle, DocumentAccess *pAccess) {
+
+	LexAccessor styler(pAccess);
 
 	unsigned int endPos = startPos + length;
 	int visibleChars = 0;
@@ -885,6 +893,8 @@ void LexerCPP::EvaluateTokens(std::vector<std::string> &tokens) {
 		std::vector<std::string> inBracket(itBracket + 1, itEndBracket);
 		EvaluateTokens(inBracket);
 		std::vector<std::string>::iterator itInsert = tokens.erase(itBracket, itEndBracket + 1);
+		if (tokens.empty())
+			itInsert = tokens.begin();
 		tokens.insert(itInsert, inBracket.begin(), inBracket.end());
 		itBracket = std::find(tokens.begin(), tokens.end(), "(");
 		itEndBracket = std::find(tokens.begin(), tokens.end(), ")");

@@ -33,13 +33,19 @@ public:
 	bool InListAbbreviated(const char *s, const char marker);
 };
 
-class LexerInstance {
+enum { wsSpace = 1, wsTab = 2, wsSpaceTab = 4, wsInconsistent=8};
+
+class Accessor;
+
+typedef bool (*PFNIsCommentLeader)(Accessor &styler, int pos, int len);
+
+class Accessor : public LexAccessor {
 public:
-	virtual void Release() = 0;
-	virtual int PropertySet(const char *key, const char *val) = 0;
-	virtual int WordListSet(int n, const char *wl) = 0;
-	virtual void Lex(unsigned int startPos, int lengthDoc, int initStyle, Accessor &styler) = 0;
-	virtual void Fold(unsigned int startPos, int lengthDoc, int initStyle, Accessor &styler) = 0;
+	PropertyGet *pprops;
+	Accessor(DocumentAccess *pAccess_, PropertyGet *pprops_);
+	int GetPropertyInt(const char *, int defaultValue=0);
+	char *GetProperties();
+	int IndentAmount(int line, int *flags, PFNIsCommentLeader pfnIsCommentLeader = 0);
 };
 
 typedef void (*LexerFunction)(unsigned int startPos, int lengthDoc, int initStyle,
