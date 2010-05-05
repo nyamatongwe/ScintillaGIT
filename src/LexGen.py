@@ -275,7 +275,6 @@ def RegenerateAll():
     # extracted from the Scintilla source ZIP (typically created on
     # Windows).
     Regenerate(root + "scintilla/gtk/makefile", "#", LF, lexFiles)
-    Regenerate(root + "scintilla/gtk/scintilla.mak", "#", NATIVE, lexFiles)
     Regenerate(root + "scintilla/macosx/makefile", "#", LF, lexFiles)
     if os.path.exists(root + "scite"):
         Regenerate(root + "scite/win32/makefile", "#", NATIVE, lexFiles, propFiles)
