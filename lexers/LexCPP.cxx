@@ -370,7 +370,6 @@ struct After {
 };
 
 void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, IDocument *pAccess) {
-
 	LexAccessor styler(pAccess);
 
 	CharacterSet setOKBeforeRE(CharacterSet::setNone, "([{=,:;!%^&*|?~+-");
