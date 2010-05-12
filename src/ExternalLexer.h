@@ -24,7 +24,7 @@ typedef void (EXT_LEXER_DECL *GetLexerNameFn)(unsigned int Index, char *name, in
 typedef LexerFactoryFunction(EXT_LEXER_DECL *GetLexerFactoryFunction)(unsigned int Index);
 
 /// Sub-class of LexerModule to use an external lexer.
-class ExternalLexerModule : protected LexerModule {
+class ExternalLexerModule : public LexerModule {
 protected:
 	GetLexerFactoryFunction fneFactory;
 	int externalLanguage;

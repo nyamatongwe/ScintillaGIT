@@ -2136,6 +2136,9 @@ get int GetStyleBitsNeeded=4011(,)
 # Return the length of the text.
 get int GetLexerLanguage=4012(, stringresult text)
 
+# For private communication between an application and a known lexer.
+fun int PrivateLexerCall=4013(int operation, int pointer)
+
 # Notifications
 # Type of modification and the action which caused the modification.
 # These are defined as a bit mask to make it easy to specify which notifications are wanted.

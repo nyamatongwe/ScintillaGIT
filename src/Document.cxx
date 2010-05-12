@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <assert.h>
 
 #include <string>
 #include <vector>
@@ -23,15 +24,17 @@
 
 #include "Platform.h"
 
+#include "ILexer.h"
 #include "Scintilla.h"
+
 #include "SplitVector.h"
 #include "Partitioning.h"
 #include "RunStyles.h"
 #include "CellBuffer.h"
 #include "PerLine.h"
 #include "CharClassify.h"
+#include "CharacterSet.h"
 #include "Decoration.h"
-#include "Accessor.h"
 #include "Document.h"
 #include "RESearch.h"
 #include "UniConversion.h"

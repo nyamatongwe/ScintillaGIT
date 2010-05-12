@@ -799,6 +799,7 @@ typedef sptr_t (*SciFnDirect)(sptr_t ptr, unsigned int iMessage, uptr_t wParam, 
 #define SCI_GETPROPERTYINT 4010
 #define SCI_GETSTYLEBITSNEEDED 4011
 #define SCI_GETLEXERLANGUAGE 4012
+#define SCI_PRIVATELEXERCALL 4013
 #define SC_MOD_INSERTTEXT 0x1
 #define SC_MOD_DELETETEXT 0x2
 #define SC_MOD_CHANGESTYLE 0x4

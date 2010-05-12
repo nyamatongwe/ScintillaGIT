@@ -9,18 +9,21 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <assert.h>
 
 #include <string>
 
 #include "Platform.h"
 
+#include "ILexer.h"
 #include "Scintilla.h"
-
 #include "SciLexer.h"
-#include "PropSet.h"
+
+#include "LexAccessor.h"
 #include "Accessor.h"
-#include "DocumentAccessor.h"
-#include "KeyWords.h"
+#include "WordList.h"
+#include "LexerModule.h"
+#include "Catalogue.h"
 #include "ExternalLexer.h"
 
 #ifdef SCI_NAMESPACE
@@ -34,35 +37,6 @@ LexerManager *LexerManager::theInstance = NULL;
 // ExternalLexerModule
 //
 //------------------------------------------
-
-char **WordListsToStrings(WordList *val[]) {
-	int dim = 0;
-	while (val[dim])
-		dim++;
-	char **wls = new char * [dim + 1];
-	for (int i = 0; i < dim; i++) {
-		std::string words;
-		words = "";
-		for (int n = 0; n < val[i]->len; n++) {
-			words += val[i]->words[n];
-			if (n != val[i]->len - 1)
-				words += " ";
-		}
-		wls[i] = new char[words.length() + 1];
-		strcpy(wls[i], words.c_str());
-	}
-	wls[dim] = 0;
-	return wls;
-}
-
-void DeleteWLStrings(char *strs[]) {
-	int dim = 0;
-	while (strs[dim]) {
-		delete strs[dim];
-		dim++;
-	}
-	delete [] strs;
-}
 
 void ExternalLexerModule::SetExternal(GetLexerFactoryFunction fFactory, int index) {
 	fneFactory = fFactory;
@@ -107,6 +81,7 @@ LexerLibrary::LexerLibrary(const char *ModuleName) {
 			for (int i = 0; i < nl; i++) {
 				GetLexerName(i, lexname, 100);
 				lex = new ExternalLexerModule(SCLEX_AUTOMATIC, NULL, lexname, NULL);
+				Catalogue::AddLexerModule(lex);
 
 				// Create a LexerMinder so we don't leak the ExternalLexerModule...
 				lm = new LexerMinder;
@@ -165,10 +140,8 @@ LexerManager *LexerManager::GetInstance() {
 
 /// Delete any LexerManager instance...
 void LexerManager::DeleteInstance() {
-	if (theInstance) {
-		delete theInstance;
-		theInstance = NULL;
-	}
+	delete theInstance;
+	theInstance = NULL;
 }
 
 /// protected constructor - this is a singleton...
@@ -186,6 +159,10 @@ void LexerManager::Load(const char *path) {
 }
 
 void LexerManager::LoadLexerLibrary(const char *module) {
+	for (LexerLibrary *ll = first; ll; ll= ll->next) {
+		if (strcmp(ll->m_sModuleName.c_str(), module) == 0)
+			return;
+	}
 	LexerLibrary *lib = new LexerLibrary(module);
 	if (NULL != first) {
 		last->next = lib;

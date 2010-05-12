@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <assert.h>
 
 #include <string>
 #include <vector>
@@ -25,6 +26,7 @@
 
 #include "Platform.h"
 
+#include "ILexer.h"
 #include "Scintilla.h"
 
 #include "SplitVector.h"
@@ -40,6 +42,7 @@
 #include "ViewStyle.h"
 #include "CharClassify.h"
 #include "Decoration.h"
+#include "LexAccessor.h"
 #include "Accessor.h"
 #include "Document.h"
 #include "Selection.h"

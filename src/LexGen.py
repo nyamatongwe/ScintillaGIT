@@ -230,7 +230,7 @@ def RegenerateAll():
     root="../../"
 
     # Find all the lexer source code files
-    lexFilePaths = glob.glob(root + "scintilla/src/Lex*.cxx")
+    lexFilePaths = glob.glob(root + "scintilla/lexers/Lex*.cxx")
     sortListInsensitive(lexFilePaths)
     lexFiles = [os.path.basename(f)[:-4] for f in lexFilePaths]
     print(lexFiles)
@@ -267,7 +267,7 @@ def RegenerateAll():
         sortListInsensitive(propFiles)
         print(propFiles)
 
-    Regenerate(root + "scintilla/src/KeyWords.cxx", "//", NATIVE, lexerModules)
+    Regenerate(root + "scintilla/src/Catalogue.cxx", "//", NATIVE, lexerModules)
     Regenerate(root + "scintilla/win32/makefile", "#", NATIVE, lexFiles)
     Regenerate(root + "scintilla/win32/scintilla.mak", "#", NATIVE, lexFiles)
     Regenerate(root + "scintilla/win32/scintilla_vc6.mak", "#", NATIVE, lexFiles)

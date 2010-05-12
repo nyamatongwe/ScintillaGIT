@@ -9,20 +9,23 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <assert.h>
 
 #include <string>
 #include <vector>
 
 #include "Platform.h"
 
+#include "ILexer.h"
 #include "Scintilla.h"
-#include "PropSet.h"
+
 #include "PropSetSimple.h"
 #ifdef SCI_LEXER
 #include "SciLexer.h"
+#include "LexAccessor.h"
 #include "Accessor.h"
-#include "DocumentAccessor.h"
-#include "KeyWords.h"
+#include "LexerModule.h"
+#include "Catalogue.h"
 #endif
 #include "SplitVector.h"
 #include "Partitioning.h"
@@ -480,6 +483,7 @@ public:
 	void SetWordList(int n, const char *wl);
 	int GetStyleBitsNeeded() const;
 	const char *GetName() const;
+	void *PrivateCall(int operation, void *pointer);
 	void PropSet(const char *key, const char *val);
 	const char *PropGet(const char *key) const;
 	int PropGetInt(const char *key, int defaultValue=0) const;
@@ -520,16 +524,16 @@ void LexState::SetLexerModule(const LexerModule *lex) {
 
 void LexState::SetLexer(uptr_t wParam) {
 	lexLanguage = wParam;
-	const LexerModule *lex = LexerModule::Find(lexLanguage);
+	const LexerModule *lex = Catalogue::Find(lexLanguage);
 	if (!lex)
-		lex = LexerModule::Find(SCLEX_NULL);
+		lex = Catalogue::Find(SCLEX_NULL);
 	SetLexerModule(lex);
 }
 
 void LexState::SetLexerLanguage(const char *languageName) {
-	const LexerModule *lex = LexerModule::Find(languageName);
+	const LexerModule *lex = Catalogue::Find(languageName);
 	if (!lex)
-		lex = LexerModule::Find(SCLEX_NULL);
+		lex = Catalogue::Find(SCLEX_NULL);
 	if (lex)
 		lexLanguage = lex->GetLanguage();
 	SetLexerModule(lex);
@@ -550,6 +554,14 @@ int LexState::GetStyleBitsNeeded() const {
 
 const char *LexState::GetName() const {
 	return lexCurrent ? lexCurrent->languageName : "";
+}
+
+void *LexState::PrivateCall(int operation, void *pointer) {
+	if (pdoc && instance) {
+		return instance->PrivateCall(operation, pointer);
+	} else {
+		return 0;
+	}
 }
 
 void LexState::PropSet(const char *key, const char *val) {
@@ -782,7 +794,7 @@ sptr_t ScintillaBase::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lPara
 		return StringResult(lParam, DocumentLexState()->PropGet(reinterpret_cast<const char *>(wParam)));
 
 	case SCI_GETPROPERTYEXPANDED:
-		return DocumentLexState()->PropGetExpanded(reinterpret_cast<const char *>(wParam), 
+		return DocumentLexState()->PropGetExpanded(reinterpret_cast<const char *>(wParam),
 			reinterpret_cast<char *>(lParam));
 
 	case SCI_GETPROPERTYINT:
@@ -798,6 +810,10 @@ sptr_t ScintillaBase::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lPara
 
 	case SCI_GETLEXERLANGUAGE:
 		return StringResult(lParam, DocumentLexState()->GetName());
+
+	case SCI_PRIVATELEXERCALL:
+		return reinterpret_cast<sptr_t>(
+			DocumentLexState()->PrivateCall(wParam, reinterpret_cast<void *>(lParam)));
 
 	case SCI_GETSTYLEBITSNEEDED:
 		return DocumentLexState()->GetStyleBitsNeeded();
