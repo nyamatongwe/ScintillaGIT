@@ -46,7 +46,7 @@ inline bool IsAWordStart(const int ch) {
 }
 
 inline bool isAveOperator(char ch) {
-	if (isalnum(ch))
+	if (isascii(ch) && isalnum(ch))
 		return false;
 	// '.' left out as it is used to make up numbers
 	if (ch == '*' || ch == '/' || ch == '-' || ch == '+' ||
