@@ -33,6 +33,14 @@ LexerBase::LexerBase() {
 	keyWordLists[numWordLists] = 0;
 }
 
+LexerBase::~LexerBase() {
+	for (int wl = 0; wl < numWordLists; wl++) {
+		delete keyWordLists[wl];
+		keyWordLists[wl] = 0;
+	}
+	keyWordLists[numWordLists] = 0;
+}
+
 void SCI_METHOD LexerBase::Release() {
 	delete this;
 }

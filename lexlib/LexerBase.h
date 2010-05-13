@@ -20,6 +20,7 @@ protected:
 	WordList *keyWordLists[numWordLists+1];
 public:
 	LexerBase();
+	~LexerBase();
 	void SCI_METHOD Release();
 	int SCI_METHOD Version() const;
 	int SCI_METHOD PropertySet(const char *key, const char *val);
