@@ -15,6 +15,10 @@
 #ifdef _MSC_VER
 #pragma warning(disable: 4786)
 #endif
+#ifdef __BORLANDC__
+// Borland C++ displays warnings in vector header without this
+#pragma option -w-ccc -w-rch
+#endif
 
 #include <string>
 #include <vector>
@@ -301,7 +305,7 @@ public:
 	bool EvaluateExpression(const std::string &expr, const std::map<std::string, std::string> &preprocessorDefinitions);
 };
 
-int LexerCPP::PropertySet(const char *key, const char *val) {
+int SCI_METHOD LexerCPP::PropertySet(const char *key, const char *val) {
 	LexCPPOptions optionsNew = options;
 	optionsNew.PropertySet(key, val);
 	if (options != optionsNew) {
@@ -312,7 +316,7 @@ int LexerCPP::PropertySet(const char *key, const char *val) {
 	}
 }
 
-int LexerCPP::WordListSet(int n, const char *wl) {
+int SCI_METHOD LexerCPP::WordListSet(int n, const char *wl) {
 	WordList *wordListN = 0;
 	switch (n) {
 	case 0:
@@ -369,7 +373,7 @@ struct After {
 	}
 };
 
-void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, IDocument *pAccess) {
+void SCI_METHOD LexerCPP::Lex(unsigned int startPos, int length, int initStyle, IDocument *pAccess) {
 	LexAccessor styler(pAccess);
 
 	CharacterSet setOKBeforeRE(CharacterSet::setNone, "([{=,:;!%^&*|?~+-");
@@ -779,7 +783,7 @@ void LexerCPP::Lex(unsigned int startPos, int length, int initStyle, IDocument *
 // level store to make it easy to pick up with each increment
 // and to make it possible to fiddle the current level for "} else {".
 
-void LexerCPP::Fold(unsigned int startPos, int length, int initStyle, IDocument *pAccess) {
+void SCI_METHOD LexerCPP::Fold(unsigned int startPos, int length, int initStyle, IDocument *pAccess) {
 
 	LexAccessor styler(pAccess);
 
