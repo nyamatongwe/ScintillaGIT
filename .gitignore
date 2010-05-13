@@ -8,3 +8,9 @@
 *.pdb
 *.res
 *.bak
+*.sbr
+*.idb
+*.ilk
+*.ncb
+*.opt
+*.plg
