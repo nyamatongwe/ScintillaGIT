@@ -74,7 +74,7 @@ int wxForceScintillaLexers(void) {
 // Force a reference to all of the Scintilla lexers so that the linker will
 // not remove the code of the lexers.
 int Scintilla_LinkLexers() {
-	
+
 	static int initialised = 0;
 	if (initialised)
 		return 0;
