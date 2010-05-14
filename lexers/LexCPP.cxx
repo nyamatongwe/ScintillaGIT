@@ -718,6 +718,11 @@ void SCI_METHOD LexerCPP::Lex(unsigned int startPos, int length, int initStyle, 
 								activitySet = preproc.IsInactive() ? 0x40 : 0;
 								if (!activitySet)
 									sc.ChangeState(SCE_C_PREPROCESSOR|activitySet);
+							} else if (!preproc.IsInactive()) {
+								preproc.InvertCurrentLevel();
+								activitySet = preproc.IsInactive() ? 0x40 : 0;
+								if (!activitySet)
+									sc.ChangeState(SCE_C_PREPROCESSOR|activitySet);
 							}
 						} else if (sc.Match("elif")) {
 							// Ensure only one chosen out of #if .. #elif .. #elif .. #else .. #endif
