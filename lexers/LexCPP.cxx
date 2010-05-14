@@ -906,10 +906,13 @@ void LexerCPP::EvaluateTokens(std::vector<std::string> &tokens) {
 	while ((itBracket != tokens.end()) && (itEndBracket != tokens.end()) && (itEndBracket > itBracket)) {
 		std::vector<std::string> inBracket(itBracket + 1, itEndBracket);
 		EvaluateTokens(inBracket);
-		std::vector<std::string>::iterator itInsert = tokens.erase(itBracket, itEndBracket + 1);
-		if (tokens.empty())
-			itInsert = tokens.begin();
-		tokens.insert(itInsert, inBracket.begin(), inBracket.end());
+
+		// The insertion is done before the removal because there were failures with the opposite approach
+		tokens.insert(itBracket, inBracket.begin(), inBracket.end());
+		itBracket = std::find(tokens.begin(), tokens.end(), "(");
+		itEndBracket = std::find(tokens.begin(), tokens.end(), ")");
+		tokens.erase(itBracket, itEndBracket + 1);
+
 		itBracket = std::find(tokens.begin(), tokens.end(), "(");
 		itEndBracket = std::find(tokens.begin(), tokens.end(), ")");
 	}
