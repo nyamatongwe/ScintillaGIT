@@ -259,6 +259,10 @@ int Document::LineEnd(int line) const {
 	}
 }
 
+void SCI_METHOD Document::SetErrorStatus(int /*status*/) {
+	// TODO: set in all watchers
+}
+
 int SCI_METHOD Document::LineFromPosition(int pos) const {
 	return cb.LineFromPosition(pos);
 }

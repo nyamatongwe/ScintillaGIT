@@ -23,6 +23,7 @@ enum { dvOriginal=0 };
 class IDocument {
 public:
 	virtual int SCI_METHOD Version() const = 0;
+	virtual void SCI_METHOD SetErrorStatus(int status) = 0;
 	virtual int SCI_METHOD Length() const = 0;
 	virtual void SCI_METHOD GetCharRange(char *buffer, int position, int lengthRetrieve) const = 0;
 	virtual char SCI_METHOD StyleAt(int position) const = 0;

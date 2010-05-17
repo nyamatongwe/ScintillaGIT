@@ -219,6 +219,8 @@ public:
 		return dvOriginal;
 	}
 
+	void SCI_METHOD SetErrorStatus(int status);
+
 	int SCI_METHOD LineFromPosition(int pos) const;
 	int ClampPositionIntoDocument(int pos);
 	bool IsCrLf(int pos);
