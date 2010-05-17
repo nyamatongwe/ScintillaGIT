@@ -18,6 +18,10 @@
 using namespace Scintilla;
 #endif
 
+#ifdef SCI_NAMESPACE
+namespace Scintilla {
+#endif
+
 int CompareCaseInsensitive(const char *a, const char *b) {
 	while (*a && *b) {
 		if (*a != *b) {
@@ -51,3 +55,7 @@ int CompareNCaseInsensitive(const char *a, const char *b, size_t len) {
 		// Either *a or *b is nul
 		return *a - *b;
 }
+
+#ifdef SCI_NAMESPACE
+}
+#endif

@@ -469,6 +469,10 @@ void ScintillaBase::ButtonDown(Point pt, unsigned int curTime, bool shift, bool 
 
 #ifdef SCI_LEXER
 
+#ifdef SCI_NAMESPACE
+namespace Scintilla {
+#endif
+
 class LexState : public LexInterface {
 	const LexerModule *lexCurrent;
 	void SetLexerModule(const LexerModule *lex);
@@ -489,6 +493,10 @@ public:
 	int PropGetInt(const char *key, int defaultValue=0) const;
 	int PropGetExpanded(const char *key, char *result) const;
 };
+
+#ifdef SCI_NAMESPACE
+}
+#endif
 
 LexState::LexState(Document *pdoc_) : LexInterface(pdoc_) {
 	lexCurrent = 0;
