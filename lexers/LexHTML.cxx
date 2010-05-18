@@ -638,6 +638,7 @@ static void ColouriseHyperTextDoc(unsigned int startPos, int length, int initSty
 	if (inScriptType == eNonHtmlScript && state == SCE_H_COMMENT) {
 		scriptLanguage = eScriptComment;
 	}
+	script_type beforeLanguage = ScriptOfState(beforePreProc);
 
 	// property fold.html
 	//	Folding is turned on or off for HTML and XML files with this option.
@@ -944,7 +945,7 @@ static void ColouriseHyperTextDoc(unsigned int startPos, int length, int initSty
 		}
 
 		// handle the start Django template code
-		else if (isDjango && scriptLanguage == eScriptNone && (ch == '{' && (chNext == '%' ||  chNext == '{'))) {
+		else if (isDjango && scriptLanguage != eScriptPython && (ch == '{' && (chNext == '%' ||  chNext == '{'))) {
 			if (chNext == '%')
 				strcpy(djangoBlockType, "%");
 			else
@@ -959,6 +960,7 @@ static void ColouriseHyperTextDoc(unsigned int startPos, int length, int initSty
 			i += 1;
 			visibleChars += 1;
 			state = SCE_HP_START;
+			beforeLanguage = scriptLanguage;
 			scriptLanguage = eScriptPython;
 			styler.ColourTo(i, SCE_H_ASP);
 			if (foldHTMLPreprocessor && chNext == '%')
@@ -1092,7 +1094,7 @@ static void ColouriseHyperTextDoc(unsigned int startPos, int length, int initSty
 			if (foldHTMLPreprocessor) {
 				levelCurrent--;
 			}
-			scriptLanguage = eScriptNone;
+			scriptLanguage = beforeLanguage;
 			continue;
 		}
 
