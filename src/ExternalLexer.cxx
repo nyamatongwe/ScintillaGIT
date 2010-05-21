@@ -19,9 +19,6 @@
 #include "Scintilla.h"
 #include "SciLexer.h"
 
-#include "LexAccessor.h"
-#include "Accessor.h"
-#include "WordList.h"
 #include "LexerModule.h"
 #include "Catalogue.h"
 #include "ExternalLexer.h"

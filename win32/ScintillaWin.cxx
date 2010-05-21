@@ -29,9 +29,6 @@
 
 #ifdef SCI_LEXER
 #include "SciLexer.h"
-#include "PropSetSimple.h"
-#include "LexAccessor.h"
-#include "Accessor.h"
 #include "LexerModule.h"
 #endif
 #include "SplitVector.h"

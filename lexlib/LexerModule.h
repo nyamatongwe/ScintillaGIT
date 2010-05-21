@@ -12,6 +12,9 @@
 namespace Scintilla {
 #endif
 
+class Accessor;
+class WordList;
+
 typedef void (*LexerFunction)(unsigned int startPos, int lengthDoc, int initStyle,
                   WordList *keywordlists[], Accessor &styler);
 typedef ILexer *(*LexerFactoryFunction)();

@@ -42,8 +42,6 @@
 #include "ViewStyle.h"
 #include "CharClassify.h"
 #include "Decoration.h"
-#include "LexAccessor.h"
-#include "Accessor.h"
 #include "Document.h"
 #include "Selection.h"
 #include "PositionCache.h"

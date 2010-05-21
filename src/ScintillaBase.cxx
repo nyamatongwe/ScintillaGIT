@@ -22,8 +22,6 @@
 #include "PropSetSimple.h"
 #ifdef SCI_LEXER
 #include "SciLexer.h"
-#include "LexAccessor.h"
-#include "Accessor.h"
 #include "LexerModule.h"
 #include "Catalogue.h"
 #endif
