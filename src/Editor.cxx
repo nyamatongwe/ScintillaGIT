@@ -4104,6 +4104,10 @@ void Editor::NotifyStyleNeeded(Document *, void *, int endStyleNeeded) {
 void Editor::NotifyLexerChanged(Document *, void *) {
 }
 
+void Editor::NotifyErrorOccurred(Document *, void *, int status) {
+	errorStatus = status;
+}
+
 void Editor::NotifyChar(int ch) {
 	SCNotification scn = {0};
 	scn.nmhdr.code = SCN_CHARADDED;

@@ -259,8 +259,11 @@ int Document::LineEnd(int line) const {
 	}
 }
 
-void SCI_METHOD Document::SetErrorStatus(int /*status*/) {
-	// TODO: set in all watchers
+void SCI_METHOD Document::SetErrorStatus(int status) {
+	// Tell the watchers the lexer has changed.
+	for (int i = 0; i < lenWatchers; i++) {
+		watchers[i].watcher->NotifyErrorOccurred(this, watchers[i].userData, status);
+	}
 }
 
 int SCI_METHOD Document::LineFromPosition(int pos) const {

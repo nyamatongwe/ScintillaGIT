@@ -449,6 +449,7 @@ public:
 	virtual void NotifyDeleted(Document *doc, void *userData) = 0;
 	virtual void NotifyStyleNeeded(Document *doc, void *userData, int endPos) = 0;
 	virtual void NotifyLexerChanged(Document *doc, void *userData) = 0;
+	virtual void NotifyErrorOccurred(Document *doc, void *userData, int status) = 0;
 };
 
 #ifdef SCI_NAMESPACE
