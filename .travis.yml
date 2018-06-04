@@ -7,5 +7,5 @@ addons:
 compiler:
   - gcc
 script:
-  - cd gtk
-  - make all
+- cd gtk
+- make all
