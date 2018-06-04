@@ -1,5 +1,9 @@
-install: make get-deps
+install: make
 language: cpp
+addons:
+  apt:
+    packages:
+    - libgtk-3-dev
 compiler:
   - clang
   - gcc
